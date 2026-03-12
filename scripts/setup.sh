@@ -23,7 +23,7 @@ info "Checking prerequisites..."
 check_tool node
 check_tool npm
 check_tool docker
-check_tool docker-compose || check_tool docker  # docker compose v2 fallback
+command -v docker-compose &>/dev/null || docker compose version &>/dev/null || die "docker-compose or docker compose plugin is required but not installed"
 
 NODE_VER=$(node -e "process.exit(parseInt(process.version.slice(1)) < 18 ? 1 : 0)" 2>/dev/null) || \
   die "Node.js 18+ is required (found $(node -v))"
