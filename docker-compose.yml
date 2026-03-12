@@ -1,0 +1,117 @@
+version: "3.9"
+
+networks:
+  frontend_net:
+    driver: bridge
+  backend_net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+    driver: local
+  mongo_config:
+    driver: local
+
+services:
+  # ─────────────────────────────────
+  # MongoDB
+  # ─────────────────────────────────
+  mongodb:
+    image: mongo:7.0
+    container_name: banking_mongodb
+    restart: unless-stopped
+    networks:
+      - backend_net
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD is required}
+      MONGO_INITDB_DATABASE: banking_db
+    # MongoDB NOT exposed externally - only accessible within backend_net
+    expose:
+      - "27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
+  # ─────────────────────────────────
+  # Backend (Node.js / Express)
+  # ─────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: banking_backend
+    restart: unless-stopped
+    networks:
+      - backend_net
+      - frontend_net
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 5000
+      MONGODB_URI: mongodb://${MONGO_APP_USER:-app_user}:${MONGO_APP_PASSWORD:?MONGO_APP_PASSWORD is required}@mongodb:27017/banking_db?authSource=banking_db
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-5}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost,http://frontend}
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # ─────────────────────────────────
+  # Frontend (React + Nginx)
+  # ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        REACT_APP_API_URL: ""  # Empty = use nginx proxy path /api
+    container_name: banking_frontend
+    restart: unless-stopped
+    networks:
+      - frontend_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
