@@ -1,0 +1,164 @@
+# =============================================================================
+# backend/deployment.yaml — Node.js / Express API Deployment
+#
+# Image: built by the Tekton pipeline and pushed to Docker Hub.
+# Replace DOCKERHUB_USERNAME with your actual Docker Hub username,
+# or let the pipeline substitute it via Kustomize/envsubst.
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: banking-backend
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: banking-backend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/version: "latest"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: banking-backend
+      app.kubernetes.io/component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0     # zero-downtime rollouts
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: banking-backend
+        app.kubernetes.io/part-of: dtb-banking-portal
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/version: "latest"
+      annotations:
+        # Force pod restart when ConfigMap/Secret changes (Reloader pattern)
+        checksum/config: "placeholder-updated-by-pipeline"
+
+    spec:
+      # ── Security: run as non-root ────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001     # node user in the Alpine image
+        runAsGroup: 1001
+        fsGroup: 1001
+
+      # ── Wait for MongoDB to be ready before starting ──────────────────────
+      initContainers:
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z mongodb-0.mongodb-headless.banking.svc.cluster.local 27017; do
+                echo "Waiting for MongoDB..."; sleep 3
+              done
+              echo "MongoDB is ready."
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "32Mi"
+
+      containers:
+        - name: backend
+          # Pipeline replaces DOCKERHUB_USERNAME and IMAGE_TAG at build time
+          image: DOCKERHUB_USERNAME/banking-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          # ── Environment — non-sensitive from ConfigMap ─────────────────
+          envFrom:
+            - configMapRef:
+                name: backend-config
+
+          # ── Environment — sensitive from Secret ────────────────────────
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
+            - name: MONGO_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: MONGO_APP_PASSWORD
+            # Construct full MongoDB URI from config + secret parts
+            - name: MONGODB_URI
+              value: >-
+                mongodb://$(MONGO_APP_USER):$(MONGO_APP_PASSWORD)@$(MONGODB_HOST):$(MONGODB_PORT)/$(MONGO_DB_NAME)?authSource=$(MONGO_DB_NAME)
+
+          # ── Probes ────────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12   # 60s window for slow starts
+
+          # ── Resources ─────────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          # ── Security context ──────────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          # ── Writable tmpfs (matches docker-compose read_only + tmpfs) ──
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # ── Image pull secret ──────────────────────────────────────────────
+      imagePullSecrets:
+        - name: regcred
+
+      # ── Spread replicas across nodes ───────────────────────────────────
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: banking-backend

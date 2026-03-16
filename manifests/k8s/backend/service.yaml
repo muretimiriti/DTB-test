@@ -1,0 +1,26 @@
+# =============================================================================
+# backend/service.yaml — Backend ClusterIP Service
+#
+# Internal only — not exposed outside the cluster.
+# The frontend Nginx proxy forwards /api/* requests to this service.
+# DNS: banking-backend.banking.svc.cluster.local:5000
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: banking-backend
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: banking-backend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: banking-backend
+    app.kubernetes.io/component: backend
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+      protocol: TCP

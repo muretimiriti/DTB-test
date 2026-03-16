@@ -1,0 +1,47 @@
+# =============================================================================
+# frontend/ingress.yaml — Ingress for external access
+#
+# Routes external traffic into the cluster via the nginx-ingress controller
+# (enabled as a minikube addon: minikube addons enable ingress).
+#
+# Local testing:
+#   minikube tunnel   (in a separate terminal)
+#   Then visit: http://banking.local
+#
+# Add to /etc/hosts:
+#   $(minikube ip)   banking.local
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banking-ingress
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: banking-frontend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: frontend
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Proxy timeouts (longer for API calls)
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options SAMEORIGIN;
+      add_header X-Content-Type-Options nosniff;
+      add_header Referrer-Policy strict-origin-when-cross-origin;
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: banking.local
+      http:
+        paths:
+          # All traffic → frontend (Nginx inside the pod proxies /api/* to backend)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: banking-frontend
+                port:
+                  name: http
