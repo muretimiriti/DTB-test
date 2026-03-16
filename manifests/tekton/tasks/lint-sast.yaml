@@ -1,0 +1,116 @@
+# =============================================================================
+# tasks/lint-sast.yaml — Stage 1: Lint & Static Application Security Testing
+#
+# Runs:
+#   - ESLint on backend and frontend source
+#   - npm audit (dependency vulnerability check)
+#   - hadolint (Dockerfile linting)
+#   - Checks for hardcoded secrets (grep patterns)
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: lint-sast
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs ESLint, npm audit, Dockerfile linting (hadolint), and basic secret
+    scanning across the repository source code.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+
+  params:
+    - name: fail-on-audit
+      type: string
+      default: "true"
+      description: Fail the task if npm audit finds high/critical vulnerabilities
+
+  steps:
+    # ── Backend ESLint ──────────────────────────────────────────────────────
+    - name: eslint-backend
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/backend
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Installing backend dependencies ==="
+        npm ci --prefer-offline
+        echo "=== Running ESLint on backend ==="
+        npx eslint src/ --ext .js --max-warnings 0 || \
+          (echo "ESLint found issues in backend"; exit 1)
+        echo "Backend ESLint passed"
+
+    # ── Frontend ESLint ─────────────────────────────────────────────────────
+    - name: eslint-frontend
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/frontend
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Installing frontend dependencies ==="
+        npm ci --prefer-offline
+        echo "=== Running ESLint on frontend ==="
+        npx eslint src/ --ext .js,.jsx --max-warnings 0 || \
+          (echo "ESLint found issues in frontend"; exit 1)
+        echo "Frontend ESLint passed"
+
+    # ── npm audit ───────────────────────────────────────────────────────────
+    - name: npm-audit
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        FAIL=$(params.fail-on-audit)
+        echo "=== npm audit — backend ==="
+        cd backend
+        if [ "$FAIL" = "true" ]; then
+          npm audit --audit-level=high
+        else
+          npm audit --audit-level=high || echo "WARN: audit issues found (non-blocking)"
+        fi
+        echo "=== npm audit — frontend ==="
+        cd ../frontend
+        if [ "$FAIL" = "true" ]; then
+          npm audit --audit-level=high
+        else
+          npm audit --audit-level=high || echo "WARN: audit issues found (non-blocking)"
+        fi
+
+    # ── Dockerfile lint (hadolint) ──────────────────────────────────────────
+    - name: hadolint
+      image: hadolint/hadolint:latest-alpine
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Linting backend Dockerfile ==="
+        hadolint backend/Dockerfile
+        echo "=== Linting frontend Dockerfile ==="
+        hadolint frontend/Dockerfile
+        echo "Dockerfile lint passed"
+
+    # ── Secret scanning ─────────────────────────────────────────────────────
+    - name: secret-scan
+      image: alpine:3.19
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Scanning for hardcoded secrets ==="
+        PATTERNS="password\s*=\s*['\"][^'\"]\|secret\s*=\s*['\"][^'\"]\|api_key\s*=\s*['\"][^'\"]"
+        FOUND=$(grep -rniE "$PATTERNS" \
+          --include="*.js" --include="*.ts" --include="*.json" \
+          --exclude-dir=node_modules --exclude-dir=.git \
+          . 2>/dev/null | grep -v ".env.example" | grep -v "test" || true)
+        if [ -n "$FOUND" ]; then
+          echo "Potential hardcoded secrets found:"
+          echo "$FOUND"
+          exit 1
+        fi
+        echo "No hardcoded secrets detected"

@@ -1,0 +1,95 @@
+# =============================================================================
+# tasks/cosign-sign.yaml — Image Signing with Cosign (Sigstore)
+#
+# Signs both images using keyless signing (OIDC-based) or a Cosign key pair.
+# Signed images can be verified by Kyverno policy before deployment.
+#
+# Kyverno policy (in manifests/security/) will reject unsigned images.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cosign-sign
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Signs the built Docker images using Cosign to create a verifiable
+    supply chain attestation. Kyverno enforces signature verification
+    before pods are admitted to the cluster.
+
+  workspaces:
+    - name: source
+      description: Source directory (used for attestation metadata)
+
+  params:
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: image-tag
+      type: string
+      description: Image tag (git commit SHA)
+    - name: cosign-key-secret
+      type: string
+      default: "cosign-key"
+      description: Name of the Secret containing the Cosign private key
+
+  steps:
+    # ── Sign backend image ──────────────────────────────────────────────────
+    - name: sign-backend
+      image: gcr.io/projectsigstore/cosign:latest
+      env:
+        - name: COSIGN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.cosign-key-secret)
+              key: COSIGN_PASSWORD
+      script: |
+        #!/bin/sh
+        set -e
+        IMAGE="docker.io/$(params.docker-username)/banking-backend:$(params.image-tag)"
+        echo "=== Signing backend image: $IMAGE ==="
+        cosign sign \
+          --key /cosign/cosign.key \
+          --annotations "pipeline=tekton" \
+          --annotations "git-commit=$(params.image-tag)" \
+          --annotations "signer=dtb-banking-pipeline" \
+          "$IMAGE"
+        echo "Backend image signed"
+      volumeMounts:
+        - name: cosign-key
+          mountPath: /cosign
+          readOnly: true
+
+    # ── Sign frontend image ─────────────────────────────────────────────────
+    - name: sign-frontend
+      image: gcr.io/projectsigstore/cosign:latest
+      env:
+        - name: COSIGN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: $(params.cosign-key-secret)
+              key: COSIGN_PASSWORD
+      script: |
+        #!/bin/sh
+        set -e
+        IMAGE="docker.io/$(params.docker-username)/banking-frontend:$(params.image-tag)"
+        echo "=== Signing frontend image: $IMAGE ==="
+        cosign sign \
+          --key /cosign/cosign.key \
+          --annotations "pipeline=tekton" \
+          --annotations "git-commit=$(params.image-tag)" \
+          --annotations "signer=dtb-banking-pipeline" \
+          "$IMAGE"
+        echo "Frontend image signed"
+      volumeMounts:
+        - name: cosign-key
+          mountPath: /cosign
+          readOnly: true
+
+  volumes:
+    - name: cosign-key
+      secret:
+        secretName: cosign-key   # create with: cosign generate-key-pair k8s://tekton-pipelines/cosign-key

@@ -1,0 +1,206 @@
+# =============================================================================
+# pipelines/ci-pipeline.yaml — CI Pipeline (Stages 1–7)
+#
+# Triggered on every push/PR. Runs:
+#   1. Lint & SAST        (lint-sast)
+#   2. SonarQube analysis (sonarqube-scan) — parallel with lint
+#   3. Backend tests      (test-backend)
+#   4. Frontend tests     (test-frontend) — parallel with backend tests
+#   5. Build & Push       (build-push) — after all tests pass
+#   6. Trivy scan         (trivy-scan) — after build
+#   7. Cosign sign        (cosign-sign) — after scan passes
+#   8. Update manifests   (update-manifests) — GitOps promotion
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: banking-ci-pipeline
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-pipeline
+spec:
+  description: >
+    Full CI pipeline for the DTB Banking Portal. Runs lint, SAST, tests,
+    image build, security scanning, image signing, and GitOps manifest update.
+
+  # ── Workspaces ─────────────────────────────────────────────────────────────
+  workspaces:
+    - name: pipeline-workspace
+      description: Shared workspace for source code and artefacts
+    - name: docker-credentials
+      description: Docker Hub credentials for kaniko
+
+  # ── Parameters ─────────────────────────────────────────────────────────────
+  params:
+    - name: git-url
+      type: string
+      description: Source repository URL
+    - name: git-revision
+      type: string
+      default: "main"
+      description: Git branch, tag, or commit SHA to build
+    - name: image-tag
+      type: string
+      description: Tag for built images (usually the git commit SHA)
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: sonar-token
+      type: string
+      description: SonarQube authentication token
+    - name: fail-on-audit
+      type: string
+      default: "true"
+
+  # ── Results — propagate image digests for downstream use ───────────────────
+  results:
+    - name: backend-image-digest
+      value: $(tasks.build-push.results.backend-image-digest)
+    - name: frontend-image-digest
+      value: $(tasks.build-push.results.frontend-image-digest)
+
+  # ── Tasks ──────────────────────────────────────────────────────────────────
+  tasks:
+
+    # Stage 0: Clone source
+    - name: git-clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: tekton-catalog-tasks
+          - name: type
+            value: artifact
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.9"
+      workspaces:
+        - name: output
+          workspace: pipeline-workspace
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+
+    # Stage 1a: Lint & SAST (runs after clone)
+    - name: lint-sast
+      taskRef:
+        name: lint-sast
+      runAfter: [git-clone]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: fail-on-audit
+          value: $(params.fail-on-audit)
+
+    # Stage 1b: SonarQube (runs in parallel with lint)
+    - name: sonarqube-scan
+      taskRef:
+        name: sonarqube-scan
+      runAfter: [git-clone]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: sonar-token
+          value: $(params.sonar-token)
+        - name: git-branch
+          value: $(params.git-revision)
+
+    # Stage 2a: Backend tests (runs after lint — parallel with frontend)
+    - name: test-backend
+      taskRef:
+        name: test-backend
+      runAfter: [lint-sast]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+
+    # Stage 2b: Frontend tests (runs in parallel with backend tests)
+    - name: test-frontend
+      taskRef:
+        name: test-frontend
+      runAfter: [lint-sast]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+
+    # Stage 5: Build & push images (after all tests + sonar pass)
+    - name: build-push
+      taskRef:
+        name: build-push
+      runAfter: [test-backend, test-frontend, sonarqube-scan]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+        - name: docker-credentials
+          workspace: docker-credentials
+      params:
+        - name: docker-username
+          value: $(params.docker-username)
+        - name: image-tag
+          value: $(params.image-tag)
+
+    # Stage 6: Trivy scan (after build)
+    - name: trivy-scan
+      taskRef:
+        name: trivy-scan
+      runAfter: [build-push]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: docker-username
+          value: $(params.docker-username)
+        - name: image-tag
+          value: $(params.image-tag)
+
+    # Stage 7: Cosign sign (after scan passes)
+    - name: cosign-sign
+      taskRef:
+        name: cosign-sign
+      runAfter: [trivy-scan]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: docker-username
+          value: $(params.docker-username)
+        - name: image-tag
+          value: $(params.image-tag)
+
+    # Stage 8: GitOps — update manifest image tag
+    - name: update-manifests
+      taskRef:
+        name: update-manifests
+      runAfter: [cosign-sign]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: docker-username
+          value: $(params.docker-username)
+        - name: image-tag
+          value: $(params.image-tag)
+
+  # ── Finally: always run cleanup/notification ────────────────────────────────
+  finally:
+    - name: notify-status
+      taskRef:
+        resolver: hub
+        params:
+          - name: name
+            value: send-to-webhook-http
+          - name: version
+            value: "0.1"
+      params:
+        - name: url
+          value: "http://webhook-sink.tekton-pipelines.svc.cluster.local"  # replace with Slack/Teams
+        - name: data
+          value: '{"pipeline":"banking-ci-pipeline","status":"$(tasks.status)","tag":"$(params.image-tag)"}'

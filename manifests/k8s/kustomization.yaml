@@ -1,0 +1,55 @@
+# =============================================================================
+# manifests/k8s/kustomization.yaml — Base Kustomize configuration
+#
+# Apply entire stack:
+#   kubectl apply -k manifests/k8s/
+#
+# Preview rendered output:
+#   kubectl kustomize manifests/k8s/
+#
+# Apply a single component:
+#   kubectl apply -f manifests/k8s/backend/deployment.yaml
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: banking
+
+# ── Resources — ordered by dependency ────────────────────────────────────────
+resources:
+  # Namespace first
+  - namespace.yaml
+
+  # MongoDB (backend dependency)
+  - mongodb/configmap.yaml
+  - mongodb/secret.yaml
+  - mongodb/statefulset.yaml
+  - mongodb/service.yaml
+
+  # Backend (frontend dependency)
+  - backend/configmap.yaml
+  - backend/secret.yaml
+  - backend/deployment.yaml
+  - backend/service.yaml
+
+  # Frontend (external entry point)
+  - frontend/deployment.yaml
+  - frontend/service.yaml
+  - frontend/ingress.yaml
+
+# ── Common labels added to every resource ────────────────────────────────────
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: dtb-banking-portal
+      managed-by: kustomize
+
+# ── Image substitution ───────────────────────────────────────────────────────
+# The Tekton pipeline sets the tag at build time via:
+#   kustomize edit set image DOCKERHUB_USERNAME/banking-backend=<repo>:<digest>
+images:
+  - name: DOCKERHUB_USERNAME/banking-backend
+    newName: DOCKERHUB_USERNAME/banking-backend   # replace with your Docker Hub username
+    newTag: latest
+  - name: DOCKERHUB_USERNAME/banking-frontend
+    newName: DOCKERHUB_USERNAME/banking-frontend  # replace with your Docker Hub username
+    newTag: latest

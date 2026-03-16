@@ -1,0 +1,94 @@
+# =============================================================================
+# tasks/kaniko.yaml — Build and push a Docker image using Kaniko
+#
+# Kaniko builds container images inside a Kubernetes pod without requiring
+# a Docker daemon (no privileged mode needed).
+#
+# This task builds ONE image at a time. It is called twice in the pipeline —
+# once for the backend and once for the frontend — with different params.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: kaniko
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Builds a Docker image from a Dockerfile using Kaniko and pushes it
+    to a container registry. No Docker daemon or privileged mode required.
+
+  workspaces:
+    - name: source
+      description: Workspace containing the source code and Dockerfile
+
+  params:
+    - name: image
+      type: string
+      description: Full image reference to build and push (registry/repo/name:tag)
+    - name: dockerfile
+      type: string
+      default: "Dockerfile"
+      description: Path to the Dockerfile relative to the context
+    - name: context
+      type: string
+      default: "."
+      description: Build context path relative to the workspace root
+    - name: build-target
+      type: string
+      default: "production"
+      description: Dockerfile build stage target
+    - name: extra-args
+      type: array
+      default: []
+      description: Additional kaniko executor arguments (e.g. --build-arg KEY=VAL)
+    - name: cache-enabled
+      type: string
+      default: "true"
+      description: Enable Kaniko layer caching
+    - name: cache-ttl
+      type: string
+      default: "24h"
+      description: Cache TTL
+
+  results:
+    - name: image-digest
+      description: Digest of the built and pushed image (sha256:...)
+    - name: image-url
+      description: Full image URL that was pushed
+
+  steps:
+    - name: build-and-push
+      image: gcr.io/kaniko-project/executor:latest
+      args:
+        - "--dockerfile=$(workspaces.source.path)/$(params.context)/$(params.dockerfile)"
+        - "--context=$(workspaces.source.path)/$(params.context)"
+        - "--destination=$(params.image)"
+        - "--target=$(params.build-target)"
+        - "--digest-file=$(results.image-digest.path)"
+        - "--cache=$(params.cache-enabled)"
+        - "--cache-ttl=$(params.cache-ttl)"
+        - "$(params.extra-args)"
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker/
+      env:
+        - name: DOCKER_CONFIG
+          value: /kaniko/.docker
+
+    # Write the pushed image URL to results
+    - name: write-url
+      image: alpine:3.19
+      script: |
+        #!/bin/sh
+        echo -n "$(params.image)" | tee $(results.image-url.path)
+
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: regcred
+        items:
+          - key: .dockerconfigjson
+            path: config.json

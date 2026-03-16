@@ -1,0 +1,48 @@
+# =============================================================================
+# triggers/trigger-binding.yaml — TriggerBindings
+#
+# Extract values from the GitHub webhook payload and map them to
+# pipeline parameters. One binding per event type.
+# =============================================================================
+
+# ── Push event binding (push to main) ────────────────────────────────────────
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: push-trigger-binding
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-trigger
+spec:
+  params:
+    - name: git-url
+      value: $(body.repository.clone_url)
+    - name: git-revision
+      value: $(body.after)             # full commit SHA
+    - name: git-branch
+      value: $(body.ref)               # refs/heads/main
+    - name: image-tag
+      value: $(body.after)             # use commit SHA as image tag
+
+---
+
+# ── Pull request event binding ────────────────────────────────────────────────
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: pr-trigger-binding
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-trigger
+spec:
+  params:
+    - name: git-url
+      value: $(body.pull_request.head.repo.clone_url)
+    - name: git-revision
+      value: $(body.pull_request.head.sha)
+    - name: git-branch
+      value: $(body.pull_request.head.ref)
+    - name: image-tag
+      value: $(body.pull_request.head.sha)

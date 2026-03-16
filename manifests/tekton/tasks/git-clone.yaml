@@ -1,0 +1,96 @@
+# =============================================================================
+# tasks/git-clone.yaml — Clone a Git repository into the pipeline workspace
+#
+# Local version of the Tekton Catalog git-clone task.
+# Supports branch, tag, or full commit SHA checkout.
+# Writes the checked-out commit SHA to a result for use by downstream tasks.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Clones a Git repository into the pipeline workspace at the given
+    revision (branch, tag, or commit SHA).
+
+  workspaces:
+    - name: output
+      description: Workspace where the repository is cloned into
+
+  params:
+    - name: url
+      type: string
+      description: Git repository URL to clone
+    - name: revision
+      type: string
+      default: "main"
+      description: Branch, tag, or commit SHA to checkout
+    - name: depth
+      type: string
+      default: "1"
+      description: Shallow clone depth (1 = latest commit only)
+    - name: submodules
+      type: string
+      default: "false"
+      description: Whether to fetch submodules
+
+  results:
+    - name: commit
+      description: The exact commit SHA that was checked out
+    - name: url
+      description: The URL of the cloned repository
+
+  steps:
+    - name: clone
+      image: alpine/git:latest
+      workingDir: $(workspaces.output.path)
+      env:
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: git-credentials
+              key: GIT_TOKEN
+              optional: true   # public repos do not need a token
+      script: |
+        #!/bin/sh
+        set -e
+
+        REPO_URL="$(params.url)"
+        REVISION="$(params.revision)"
+        DEPTH="$(params.depth)"
+
+        # Inject token for private repos if available
+        if [ -n "$GIT_TOKEN" ]; then
+          REPO_URL=$(echo "$REPO_URL" | sed "s|https://|https://token:${GIT_TOKEN}@|")
+        fi
+
+        echo "=== Cloning $REPO_URL at revision $REVISION ==="
+        git clone \
+          --depth "$DEPTH" \
+          --branch "$REVISION" \
+          "$REPO_URL" . \
+          2>/dev/null || git clone --depth "$DEPTH" "$REPO_URL" .
+
+        # Checkout specific SHA if revision looks like one (40 hex chars)
+        if echo "$REVISION" | grep -qE '^[0-9a-f]{40}$'; then
+          git fetch origin "$REVISION" --depth "$DEPTH"
+          git checkout "$REVISION"
+        fi
+
+        # Fetch submodules if requested
+        if [ "$(params.submodules)" = "true" ]; then
+          git submodule update --init --recursive
+        fi
+
+        # Write results
+        git rev-parse HEAD | tr -d '\n' | tee $(results.commit.path)
+        echo "$(params.url)" | tr -d '\n' | tee $(results.url.path)
+
+        echo ""
+        echo "=== Cloned successfully ==="
+        echo "Commit: $(cat $(results.commit.path))"

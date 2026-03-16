@@ -1,0 +1,82 @@
+# =============================================================================
+# rbac/rolebinding.yaml — RBAC for the Tekton pipeline ServiceAccount
+#
+# Grants the pipeline SA permissions to:
+#   - Read/write secrets (for Docker Hub, Git, Vault tokens)
+#   - Create/update ConfigMaps (for build metadata)
+#   - Access the banking namespace for deployment tasks
+# =============================================================================
+
+# ── Role: pipeline permissions within tekton-pipelines namespace ──────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pipeline-role
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-rbac
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+# ── RoleBinding: bind SA to role in tekton-pipelines namespace ───────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pipeline-rolebinding
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-rbac
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pipeline-sa
+    namespace: tekton-pipelines
+roleRef:
+  kind: Role
+  name: tekton-pipeline-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+
+# ── ClusterRole: read access to banking namespace (for deploy task) ───────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tekton-pipeline-deploy-role
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-rbac
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["services", "pods", "configmaps"]
+    verbs: ["get", "list", "watch"]
+
+---
+
+# ── ClusterRoleBinding: bind SA to deploy role ────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-pipeline-deploy-binding
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-rbac
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pipeline-sa
+    namespace: tekton-pipelines
+roleRef:
+  kind: ClusterRole
+  name: tekton-pipeline-deploy-role
+  apiGroup: rbac.authorization.k8s.io

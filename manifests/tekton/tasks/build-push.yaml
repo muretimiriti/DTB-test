@@ -1,0 +1,89 @@
+# =============================================================================
+# tasks/build-push.yaml — Stage 5 & 7: Docker Build + Push to Docker Hub
+#
+# Uses Kaniko to build images inside the cluster (no Docker daemon required).
+# Builds both banking-backend and banking-frontend, tags with git commit SHA,
+# and pushes to Docker Hub.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-push
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Builds the backend and frontend Docker images using Kaniko and pushes
+    them to Docker Hub tagged with the git commit SHA.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+    - name: docker-credentials
+      description: Docker Hub credentials (config.json mounted as secret)
+
+  params:
+    - name: image-registry
+      type: string
+      default: "docker.io"
+      description: Container image registry
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: image-tag
+      type: string
+      description: Image tag (git commit SHA from pipeline)
+
+  results:
+    - name: backend-image-digest
+      description: Full backend image reference with digest
+    - name: frontend-image-digest
+      description: Full frontend image reference with digest
+
+  steps:
+    # ── Build + push backend ────────────────────────────────────────────────
+    - name: build-push-backend
+      image: gcr.io/kaniko-project/executor:latest
+      args:
+        - "--dockerfile=$(workspaces.source.path)/backend/Dockerfile"
+        - "--context=$(workspaces.source.path)/backend"
+        - "--destination=$(params.image-registry)/$(params.docker-username)/banking-backend:$(params.image-tag)"
+        - "--destination=$(params.image-registry)/$(params.docker-username)/banking-backend:latest"
+        - "--target=production"
+        - "--build-arg=BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        - "--build-arg=GIT_COMMIT=$(params.image-tag)"
+        - "--cache=true"
+        - "--cache-ttl=24h"
+        - "--digest-file=$(results.backend-image-digest.path)"
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker/
+
+    # ── Build + push frontend ───────────────────────────────────────────────
+    - name: build-push-frontend
+      image: gcr.io/kaniko-project/executor:latest
+      args:
+        - "--dockerfile=$(workspaces.source.path)/frontend/Dockerfile"
+        - "--context=$(workspaces.source.path)/frontend"
+        - "--destination=$(params.image-registry)/$(params.docker-username)/banking-frontend:$(params.image-tag)"
+        - "--destination=$(params.image-registry)/$(params.docker-username)/banking-frontend:latest"
+        - "--target=production"
+        - "--build-arg=REACT_APP_API_URL="
+        - "--build-arg=BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        - "--build-arg=GIT_COMMIT=$(params.image-tag)"
+        - "--cache=true"
+        - "--cache-ttl=24h"
+        - "--digest-file=$(results.frontend-image-digest.path)"
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker/
+
+  volumes:
+    - name: docker-config
+      secret:
+        secretName: regcred
+        items:
+          - key: .dockerconfigjson
+            path: config.json

@@ -1,0 +1,20 @@
+# =============================================================================
+# workspaces/pvc.yaml — Shared PersistentVolumeClaim for pipeline workspaces
+#
+# All tasks in a pipeline run share this volume to pass source code,
+# built artefacts, and scan results between steps.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pipeline-workspace-pvc
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-workspace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

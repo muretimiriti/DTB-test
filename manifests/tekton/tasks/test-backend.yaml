@@ -1,0 +1,61 @@
+# =============================================================================
+# tasks/test-backend.yaml — Stage 2 & 4: Backend Unit, Integration Tests + Coverage
+#
+# Runs the backend test suite using Jest with an in-memory MongoDB instance.
+# Enforces 80% line coverage minimum (matches project target).
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-backend
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs backend unit tests, integration tests, and enforces 80% line
+    coverage using Jest and mongodb-memory-server.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+
+  params:
+    - name: coverage-threshold
+      type: string
+      default: "80"
+      description: Minimum line coverage percentage required
+
+  results:
+    - name: test-status
+      description: Pass or fail status of the test run
+
+  steps:
+    - name: run-tests
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/backend
+      env:
+        - name: NODE_ENV
+          value: "test"
+        - name: CI
+          value: "true"
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Installing backend dependencies ==="
+        npm ci --prefer-offline
+
+        echo "=== Running unit tests ==="
+        npm test -- --testPathPattern="unit" --forceExit --ci 2>&1 | tee /tmp/unit-results.txt
+
+        echo "=== Running integration tests ==="
+        npm test -- --testPathPattern="integration" --forceExit --ci 2>&1 | tee /tmp/integration-results.txt
+
+        echo "=== Checking coverage (minimum: $(params.coverage-threshold)%) ==="
+        npm test -- --coverage \
+          --coverageThreshold='{"global":{"lines":$(params.coverage-threshold)}}' \
+          --forceExit --ci 2>&1 | tee /tmp/coverage-results.txt
+
+        echo "pass" | tee $(results.test-status.path)
+        echo "=== Backend tests passed ==="

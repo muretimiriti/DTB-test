@@ -1,0 +1,107 @@
+# =============================================================================
+# tasks/npm-integration-test.yaml — Backend Integration Tests
+#
+# Runs the full integration test suite against the backend API using
+# an in-memory MongoDB instance (mongodb-memory-server).
+#
+# Separate from unit tests so the pipeline can run them in parallel
+# and report failures independently.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: npm-integration-test
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs backend integration tests using Jest and mongodb-memory-server.
+    Tests the full API request/response cycle without an external database.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+
+  params:
+    - name: working-dir
+      type: string
+      default: "backend"
+      description: Directory containing package.json relative to workspace root
+    - name: test-pattern
+      type: string
+      default: "integration"
+      description: Jest test path pattern to match integration tests
+    - name: timeout
+      type: string
+      default: "120000"
+      description: Jest test timeout in milliseconds
+
+  results:
+    - name: test-status
+      description: Pass or fail
+    - name: tests-passed
+      description: Number of passing tests
+    - name: tests-failed
+      description: Number of failing tests
+
+  steps:
+    # ── Install dependencies ────────────────────────────────────────────────
+    - name: install-deps
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/$(params.working-dir)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Installing dependencies ==="
+        npm ci --prefer-offline
+        echo "Dependencies installed"
+
+    # ── Run integration tests ───────────────────────────────────────────────
+    - name: run-integration-tests
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/$(params.working-dir)
+      env:
+        - name: NODE_ENV
+          value: "test"
+        - name: CI
+          value: "true"
+        - name: JEST_TIMEOUT
+          value: $(params.timeout)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Running integration tests (pattern: $(params.test-pattern)) ==="
+
+        # Run tests with JSON reporter for result parsing
+        npm test -- \
+          --testPathPattern="$(params.test-pattern)" \
+          --forceExit \
+          --ci \
+          --json \
+          --outputFile=/tmp/integration-results.json \
+          --testTimeout="$(params.timeout)" \
+          2>&1 | tee /tmp/integration-output.txt
+
+        EXIT_CODE=$?
+
+        # Parse results for task outputs
+        if command -v node >/dev/null 2>&1 && [ -f /tmp/integration-results.json ]; then
+          PASSED=$(node -e "const r=require('/tmp/integration-results.json'); console.log(r.numPassedTests || 0)")
+          FAILED=$(node -e "const r=require('/tmp/integration-results.json'); console.log(r.numFailedTests || 0)")
+          echo -n "$PASSED" | tee $(results.tests-passed.path)
+          echo ""
+          echo -n "$FAILED" | tee $(results.tests-failed.path)
+          echo ""
+          echo "Results: $PASSED passed, $FAILED failed"
+        fi
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "fail" | tee $(results.test-status.path)
+          echo "Integration tests FAILED — review output above"
+          exit 1
+        fi
+
+        echo "pass" | tee $(results.test-status.path)
+        echo "=== Integration tests passed ==="

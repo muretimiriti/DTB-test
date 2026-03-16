@@ -1,0 +1,71 @@
+# =============================================================================
+# triggers/event-listener.yaml — GitHub Webhook EventListener
+#
+# Listens for GitHub push and pull_request events and fires the
+# appropriate pipeline trigger.
+#
+# Expose with:
+#   kubectl port-forward svc/el-banking-event-listener -n tekton-pipelines 8080:8080
+# Or via Ingress (see triggers/ingress.yaml).
+#
+# GitHub Webhook setup:
+#   URL:         http://<ingress-or-nodeport>/
+#   Content-Type: application/json
+#   Secret:      value of the github-webhook-secret Secret
+#   Events:      push, pull_request
+# =============================================================================
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: banking-event-listener
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-trigger
+spec:
+  serviceAccountName: tekton-pipeline-sa
+
+  triggers:
+    # ── Trigger on push to main branch ──────────────────────────────────────
+    - name: push-to-main
+      interceptors:
+        - ref:
+            name: github
+          params:
+            - name: secretRef
+              value:
+                secretName: github-webhook-secret
+                secretKey: webhook-secret
+            - name: eventTypes
+              value: ["push"]
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: "body.ref == 'refs/heads/main'"
+      bindings:
+        - ref: push-trigger-binding
+      template:
+        ref: ci-trigger-template
+
+    # ── Trigger on pull request (opened / synchronize) ───────────────────────
+    - name: pull-request
+      interceptors:
+        - ref:
+            name: github
+          params:
+            - name: secretRef
+              value:
+                secretName: github-webhook-secret
+                secretKey: webhook-secret
+            - name: eventTypes
+              value: ["pull_request"]
+        - ref:
+            name: cel
+          params:
+            - name: filter
+              value: "body.action in ['opened', 'synchronize', 'reopened']"
+      bindings:
+        - ref: pr-trigger-binding
+      template:
+        ref: ci-trigger-template

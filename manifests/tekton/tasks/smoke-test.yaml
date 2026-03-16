@@ -1,0 +1,94 @@
+# =============================================================================
+# tasks/smoke-test.yaml — Stage 9: Smoke Tests Against Staging
+#
+# Validates the deployed application is functioning correctly by hitting
+# key API endpoints and the frontend health endpoint.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: smoke-test
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs smoke tests against the deployed banking portal to verify
+    the API and frontend are healthy after deployment.
+
+  params:
+    - name: backend-url
+      type: string
+      default: "http://banking-backend.banking.svc.cluster.local:5000"
+      description: Backend service URL to test
+    - name: frontend-url
+      type: string
+      default: "http://banking-frontend.banking.svc.cluster.local:80"
+      description: Frontend service URL to test
+    - name: max-retries
+      type: string
+      default: "10"
+      description: Number of retries before declaring failure
+    - name: retry-interval
+      type: string
+      default: "10"
+      description: Seconds to wait between retries
+
+  results:
+    - name: smoke-test-status
+      description: Pass or fail
+
+  steps:
+    - name: run-smoke-tests
+      image: alpine/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        RETRIES=$(params.max-retries)
+        INTERVAL=$(params.retry-interval)
+        PASSED=0
+        FAILED=0
+
+        check() {
+          local name="$1"
+          local url="$2"
+          local expected_code="${3:-200}"
+          local attempt=0
+
+          echo "=== Checking: $name ($url) ==="
+          while [ $attempt -lt $RETRIES ]; do
+            CODE=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 "$url" 2>/dev/null || echo "000")
+            if [ "$CODE" = "$expected_code" ]; then
+              echo "  PASS [$name] — HTTP $CODE"
+              PASSED=$((PASSED + 1))
+              return 0
+            fi
+            echo "  Attempt $((attempt+1))/$RETRIES — got HTTP $CODE, expected $expected_code. Retrying in ${INTERVAL}s..."
+            sleep $INTERVAL
+            attempt=$((attempt + 1))
+          done
+          echo "  FAIL [$name] — never got HTTP $expected_code"
+          FAILED=$((FAILED + 1))
+          return 1
+        }
+
+        # Backend health
+        check "Backend Health"   "$(params.backend-url)/health"          200
+        # Backend API root (should return 404 or 200, not 500)
+        check "Backend API"      "$(params.backend-url)/api/accounts"    401  # requires auth
+        # Frontend health
+        check "Frontend Health"  "$(params.frontend-url)/health"         200
+        # Frontend SPA (root)
+        check "Frontend Root"    "$(params.frontend-url)/"               200
+
+        echo ""
+        echo "=== Smoke Test Results: $PASSED passed, $FAILED failed ==="
+
+        if [ $FAILED -gt 0 ]; then
+          echo "fail" | tee $(results.smoke-test-status.path)
+          exit 1
+        fi
+
+        echo "pass" | tee $(results.smoke-test-status.path)
+        echo "All smoke tests passed"

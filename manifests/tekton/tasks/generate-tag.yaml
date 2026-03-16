@@ -1,0 +1,67 @@
+# =============================================================================
+# tasks/generate-tag.yaml — Generate a unique image tag for the pipeline run
+#
+# Produces a deterministic, traceable image tag in the format:
+#   <branch>-<short-sha>-<timestamp>
+#   e.g. main-a1b2c3d-20260316-143022
+#
+# The result is consumed by build-push, trivy-scan, cosign-sign, and
+# update-manifests tasks so all steps reference the exact same tag.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: generate-tag
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Generates a unique, traceable image tag from the git branch name,
+    short commit SHA, and build timestamp. All downstream tasks consume
+    this single tag to ensure consistency across build, scan, and deploy.
+
+  params:
+    - name: git-revision
+      type: string
+      description: Full git commit SHA (from git-clone result)
+    - name: git-branch
+      type: string
+      default: "main"
+      description: Branch name (used as tag prefix)
+
+  results:
+    - name: image-tag
+      description: Generated image tag (branch-shortsha-timestamp)
+    - name: short-sha
+      description: First 7 characters of the commit SHA
+
+  steps:
+    - name: generate
+      image: alpine:3.19
+      script: |
+        #!/bin/sh
+        set -e
+
+        REVISION="$(params.git-revision)"
+        BRANCH="$(params.git-branch)"
+
+        # Sanitise branch name: replace / and _ with -, lowercase
+        SAFE_BRANCH=$(echo "$BRANCH" | sed 's|refs/heads/||' | tr '/_' '-' | tr '[:upper:]' '[:lower:]')
+
+        # Short SHA (first 7 chars)
+        SHORT_SHA=$(echo "$REVISION" | cut -c1-7)
+
+        # Timestamp
+        TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+
+        # Compose tag
+        IMAGE_TAG="${SAFE_BRANCH}-${SHORT_SHA}-${TIMESTAMP}"
+
+        echo "=== Generated image tag: $IMAGE_TAG ==="
+
+        # Write results
+        echo -n "$IMAGE_TAG"  | tee $(results.image-tag.path)
+        echo ""
+        echo -n "$SHORT_SHA"  | tee $(results.short-sha.path)

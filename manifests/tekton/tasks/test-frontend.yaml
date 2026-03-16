@@ -1,0 +1,55 @@
+# =============================================================================
+# tasks/test-frontend.yaml — Stage 2 & 4: Frontend Unit Tests + Coverage
+#
+# Runs React Testing Library tests with Jest.
+# Enforces 60% line coverage minimum (matches project target).
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: test-frontend
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs frontend unit tests with React Testing Library and enforces
+    60% line coverage using Jest.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+
+  params:
+    - name: coverage-threshold
+      type: string
+      default: "60"
+      description: Minimum line coverage percentage required
+
+  results:
+    - name: test-status
+      description: Pass or fail status of the test run
+
+  steps:
+    - name: run-tests
+      image: node:20-alpine
+      workingDir: $(workspaces.source.path)/frontend
+      env:
+        - name: CI
+          value: "true"
+        - name: NODE_ENV
+          value: "test"
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Installing frontend dependencies ==="
+        npm ci --prefer-offline
+
+        echo "=== Running frontend tests with coverage ==="
+        npm test -- --coverage \
+          --coverageThreshold='{"global":{"lines":$(params.coverage-threshold)}}' \
+          --watchAll=false --forceExit --ci 2>&1 | tee /tmp/frontend-coverage.txt
+
+        echo "pass" | tee $(results.test-status.path)
+        echo "=== Frontend tests passed ==="

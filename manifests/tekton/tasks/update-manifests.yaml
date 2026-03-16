@@ -1,0 +1,104 @@
+# =============================================================================
+# tasks/update-manifests.yaml — GitOps: Update Kustomize image tag
+#
+# After a successful build, this task:
+#   1. Clones the GitOps/manifests repo
+#   2. Runs: kustomize edit set image <image>:<new-tag>
+#   3. Commits and pushes the change
+#
+# ArgoCD detects the commit and syncs the new image to the cluster.
+# This is the GitOps promotion step — no direct kubectl apply in the pipeline.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: update-manifests
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Updates the Kustomize image tags in the manifests repository and commits
+    the change. ArgoCD picks up the commit and syncs the cluster.
+
+  workspaces:
+    - name: source
+      description: Checked-out source (contains manifests/k8s/)
+
+  params:
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: image-tag
+      type: string
+      description: New image tag (git commit SHA)
+    - name: git-user-name
+      type: string
+      default: "Tekton Pipeline"
+      description: Git commit author name
+    - name: git-user-email
+      type: string
+      default: "tekton@dtb.local"
+      description: Git commit author email
+    - name: git-token-secret
+      type: string
+      default: "git-credentials"
+      description: Secret containing GIT_TOKEN for push authentication
+
+  steps:
+    - name: kustomize-set-image
+      image: alpine/git:latest
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: GIT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: $(params.git-token-secret)
+              key: GIT_TOKEN
+      script: |
+        #!/bin/sh
+        set -e
+
+        # Configure git identity
+        git config user.name "$(params.git-user-name)"
+        git config user.email "$(params.git-user-email)"
+
+        # Install kustomize
+        echo "=== Installing kustomize ==="
+        wget -qO /tmp/kustomize.tar.gz \
+          https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
+        tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+        chmod +x /usr/local/bin/kustomize
+
+        # Update image tags in kustomization.yaml
+        echo "=== Updating image tags to $(params.image-tag) ==="
+        cd manifests/k8s
+
+        kustomize edit set image \
+          DOCKERHUB_USERNAME/banking-backend=$(params.docker-username)/banking-backend:$(params.image-tag)
+
+        kustomize edit set image \
+          DOCKERHUB_USERNAME/banking-frontend=$(params.docker-username)/banking-frontend:$(params.image-tag)
+
+        # Verify the kustomization renders correctly
+        kustomize build . > /dev/null
+        echo "Kustomize build: OK"
+
+        # Commit and push
+        git add kustomization.yaml
+        git diff --staged --quiet && echo "No changes to commit" && exit 0
+
+        git commit -m "ci: update image tags to $(params.image-tag)
+
+Backend:  $(params.docker-username)/banking-backend:$(params.image-tag)
+Frontend: $(params.docker-username)/banking-frontend:$(params.image-tag)
+
+[skip ci]"
+
+        # Push using token authentication
+        REMOTE=$(git remote get-url origin)
+        AUTHED_REMOTE=$(echo "$REMOTE" | sed "s|https://|https://token:${GIT_TOKEN}@|")
+        git push "$AUTHED_REMOTE" HEAD
+
+        echo "=== Manifest update pushed — ArgoCD will sync automatically ==="

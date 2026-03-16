@@ -1,0 +1,76 @@
+# =============================================================================
+# triggers/trigger-template.yaml — TriggerTemplate
+#
+# Defines the PipelineRun to create when an event is received.
+# Receives parameters from the TriggerBinding and passes them to
+# the banking-ci-pipeline.
+# =============================================================================
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: ci-trigger-template
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-trigger
+spec:
+  params:
+    - name: git-url
+      description: Source repository URL
+    - name: git-revision
+      description: Git commit SHA or branch to build
+    - name: git-branch
+      description: Branch name
+      default: "main"
+    - name: image-tag
+      description: Tag for built images (commit SHA)
+
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        # Unique name: pipeline-<short-sha>-<timestamp>
+        generateName: banking-ci-run-
+        namespace: tekton-pipelines
+        labels:
+          app.kubernetes.io/part-of: dtb-banking-portal
+          app.kubernetes.io/component: tekton-pipelinerun
+          tekton.dev/pipeline: banking-ci-pipeline
+          git-branch: $(tt.params.git-branch)
+      spec:
+        pipelineRef:
+          name: banking-ci-pipeline
+        serviceAccountName: tekton-pipeline-sa
+
+        # ── Parameter bindings ──────────────────────────────────────────────
+        params:
+          - name: git-url
+            value: $(tt.params.git-url)
+          - name: git-revision
+            value: $(tt.params.git-revision)
+          - name: image-tag
+            value: $(tt.params.image-tag)
+          - name: docker-username
+            valueFrom:
+              secretKeyRef:
+                name: docker-hub-params
+                key: DOCKER_USERNAME
+          - name: sonar-token
+            valueFrom:
+              secretKeyRef:
+                name: sonarqube-token
+                key: SONAR_TOKEN
+
+        # ── Workspace bindings ──────────────────────────────────────────────
+        workspaces:
+          - name: pipeline-workspace
+            persistentVolumeClaim:
+              claimName: pipeline-workspace-pvc
+          - name: docker-credentials
+            secret:
+              secretName: regcred
+
+        # ── Timeout ────────────────────────────────────────────────────────
+        timeouts:
+          pipeline: "1h0m0s"
+          tasks: "45m0s"

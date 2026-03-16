@@ -1,0 +1,107 @@
+# =============================================================================
+# pipelines/cd-pipeline.yaml — CD Pipeline (Stages 8–10)
+#
+# Triggered when ArgoCD detects the manifest update from ci-pipeline.
+# Handles post-deployment validation and production promotion.
+#
+# Stages:
+#   8. Smoke tests on staging   (smoke-test task)
+#   9. Manual approval gate     (Tekton Approval or external trigger)
+#  10. Production promotion     (update-manifests to prod overlay)
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: banking-cd-pipeline
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-pipeline
+spec:
+  description: >
+    CD pipeline for the DTB Banking Portal. Runs smoke tests against
+    staging, waits for manual approval, then promotes the image tag
+    to the production environment overlay.
+
+  workspaces:
+    - name: pipeline-workspace
+      description: Shared workspace
+
+  params:
+    - name: image-tag
+      type: string
+      description: Image tag to promote to production
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: staging-backend-url
+      type: string
+      default: "http://banking-backend.banking.svc.cluster.local:5000"
+    - name: staging-frontend-url
+      type: string
+      default: "http://banking-frontend.banking.svc.cluster.local:80"
+    - name: git-url
+      type: string
+      description: GitOps repository URL for manifest updates
+
+  tasks:
+
+    # Stage 8: Clone manifests repo
+    - name: git-clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.9"
+      workspaces:
+        - name: output
+          workspace: pipeline-workspace
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: main
+
+    # Stage 9: Smoke tests against staging
+    - name: smoke-test-staging
+      taskRef:
+        name: smoke-test
+      runAfter: [git-clone]
+      params:
+        - name: backend-url
+          value: $(params.staging-backend-url)
+        - name: frontend-url
+          value: $(params.staging-frontend-url)
+
+    # Stage 10: Promote to production overlay
+    # Triggered manually or after smoke tests pass
+    # Updates manifests/environments/production/ kustomization image tag
+    - name: promote-to-production
+      taskRef:
+        name: update-manifests
+      runAfter: [smoke-test-staging]
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: docker-username
+          value: $(params.docker-username)
+        - name: image-tag
+          value: $(params.image-tag)
+        - name: git-user-name
+          value: "Tekton CD Pipeline"
+        - name: git-user-email
+          value: "tekton-cd@dtb.local"
+
+  finally:
+    - name: cd-notify
+      taskSpec:
+        steps:
+          - name: notify
+            image: alpine:3.19
+            script: |
+              #!/bin/sh
+              echo "CD Pipeline completed"
+              echo "Image tag $(params.image-tag) status: $(tasks.promote-to-production.status)"

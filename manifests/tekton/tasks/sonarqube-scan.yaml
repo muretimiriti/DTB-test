@@ -1,0 +1,86 @@
+# =============================================================================
+# tasks/sonarqube-scan.yaml — Stage 1 (extended): SonarQube Code Analysis
+#
+# Runs sonar-scanner against backend and frontend source code.
+# Reports code smells, bugs, security hotspots, and duplications to the
+# SonarQube instance deployed in the sonarqube namespace.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: sonarqube-scan
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Runs SonarQube static code analysis on the source code.
+    Checks Quality Gate status and fails the pipeline if the gate fails.
+
+  workspaces:
+    - name: source
+      description: Checked-out source code
+
+  params:
+    - name: sonar-host-url
+      type: string
+      default: "http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
+      description: SonarQube server URL (in-cluster service DNS)
+    - name: sonar-project-key
+      type: string
+      default: "dtb-banking-portal"
+      description: SonarQube project key
+    - name: sonar-token
+      type: string
+      description: SonarQube authentication token (injected from secret)
+    - name: git-branch
+      type: string
+      default: "main"
+      description: Source branch name for SonarQube analysis
+
+  steps:
+    # ── Install coverage reports then run sonar-scanner ────────────────────
+    - name: run-sonar-scanner
+      image: sonarsource/sonar-scanner-cli:latest
+      workingDir: $(workspaces.source.path)
+      env:
+        - name: SONAR_HOST_URL
+          value: $(params.sonar-host-url)
+        - name: SONAR_TOKEN
+          value: $(params.sonar-token)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Running SonarQube analysis ==="
+        sonar-scanner \
+          -Dsonar.projectKey=$(params.sonar-project-key) \
+          -Dsonar.projectName="DTB Banking Portal" \
+          -Dsonar.sources=backend/src,frontend/src \
+          -Dsonar.exclusions=**/node_modules/**,**/coverage/**,**/*.test.js \
+          -Dsonar.javascript.lcov.reportPaths=backend/coverage/lcov.info,frontend/coverage/lcov.info \
+          -Dsonar.branch.name=$(params.git-branch) \
+          -Dsonar.host.url=$(params.sonar-host-url) \
+          -Dsonar.login=$(params.sonar-token)
+        echo "=== SonarQube analysis submitted ==="
+
+    # ── Poll Quality Gate result ────────────────────────────────────────────
+    - name: check-quality-gate
+      image: alpine/curl:latest
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Waiting for Quality Gate result ==="
+        sleep 10   # allow SonarQube to process
+
+        STATUS=$(curl -sf \
+          -u "$(params.sonar-token):" \
+          "$(params.sonar-host-url)/api/qualitygates/project_status?projectKey=$(params.sonar-project-key)" \
+          | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+        echo "Quality Gate status: $STATUS"
+        if [ "$STATUS" != "OK" ]; then
+          echo "Quality Gate FAILED — review issues at $(params.sonar-host-url)"
+          exit 1
+        fi
+        echo "Quality Gate passed"

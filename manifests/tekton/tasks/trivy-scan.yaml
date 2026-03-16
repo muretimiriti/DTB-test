@@ -1,0 +1,103 @@
+# =============================================================================
+# tasks/trivy-scan.yaml — Stage 6: Container Image Vulnerability Scan
+#
+# Scans both built images with Trivy.
+# Fails the pipeline on CRITICAL vulnerabilities (configurable).
+# Results are stored as a report in the workspace for audit trails.
+# =============================================================================
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: trivy-scan
+  namespace: tekton-pipelines
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: tekton-task
+spec:
+  description: >
+    Scans backend and frontend Docker images for known CVEs using Trivy.
+    Fails on CRITICAL severity vulnerabilities by default.
+
+  workspaces:
+    - name: source
+      description: Directory to store scan reports
+
+  params:
+    - name: docker-username
+      type: string
+      description: Docker Hub username
+    - name: image-tag
+      type: string
+      description: Image tag to scan (git commit SHA)
+    - name: severity
+      type: string
+      default: "HIGH,CRITICAL"
+      description: Comma-separated severity levels that cause failure
+    - name: exit-code
+      type: string
+      default: "1"
+      description: Exit code when vulnerabilities are found (1=fail, 0=warn)
+
+  results:
+    - name: backend-scan-status
+      description: Trivy scan result for backend image
+    - name: frontend-scan-status
+      description: Trivy scan result for frontend image
+
+  steps:
+    # ── Scan backend image ──────────────────────────────────────────────────
+    - name: scan-backend
+      image: aquasec/trivy:latest
+      script: |
+        #!/bin/sh
+        set -e
+        IMAGE="docker.io/$(params.docker-username)/banking-backend:$(params.image-tag)"
+        REPORT="$(workspaces.source.path)/trivy-backend-report.json"
+
+        echo "=== Scanning $IMAGE ==="
+        trivy image \
+          --severity "$(params.severity)" \
+          --exit-code "$(params.exit-code)" \
+          --format json \
+          --output "$REPORT" \
+          --no-progress \
+          "$IMAGE"
+
+        # Also print table format for the pipeline log
+        trivy image \
+          --severity "$(params.severity)" \
+          --exit-code 0 \
+          --format table \
+          --no-progress \
+          "$IMAGE"
+
+        echo "pass" | tee $(results.backend-scan-status.path)
+        echo "=== Backend image scan passed ==="
+
+    # ── Scan frontend image ─────────────────────────────────────────────────
+    - name: scan-frontend
+      image: aquasec/trivy:latest
+      script: |
+        #!/bin/sh
+        set -e
+        IMAGE="docker.io/$(params.docker-username)/banking-frontend:$(params.image-tag)"
+        REPORT="$(workspaces.source.path)/trivy-frontend-report.json"
+
+        echo "=== Scanning $IMAGE ==="
+        trivy image \
+          --severity "$(params.severity)" \
+          --exit-code "$(params.exit-code)" \
+          --format json \
+          --output "$REPORT" \
+          --no-progress \
+          "$IMAGE"
+
+        trivy image \
+          --severity "$(params.severity)" \
+          --exit-code 0 \
+          --format table \
+          --no-progress \
+          "$IMAGE"
+
+        echo "pass" | tee $(results.frontend-scan-status.path)
+        echo "=== Frontend image scan passed ==="
