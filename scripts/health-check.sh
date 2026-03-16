@@ -18,19 +18,36 @@ source .env 2>/dev/null || true
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 MAX_WAIT=60
 INTERVAL=5
-ELAPSED=0
 ALL_HEALTHY=true
 
 wait_for() {
   local name="$1"; local url="$2"
+  local elapsed=0
   info "Checking ${name}..."
-  while [[ $ELAPSED -lt $MAX_WAIT ]]; do
+  while [[ $elapsed -lt $MAX_WAIT ]]; do
     if curl -sf "$url" &>/dev/null; then
       ok "${name} is healthy"
       return 0
     fi
     sleep $INTERVAL
-    ELAPSED=$((ELAPSED + INTERVAL))
+    elapsed=$((elapsed + INTERVAL))
+  done
+  fail "${name} did not become healthy within ${MAX_WAIT}s"
+  ALL_HEALTHY=false
+  return 1
+}
+
+wait_for_container() {
+  local name="$1"; local container="$2"; local path="$3"
+  local elapsed=0
+  info "Checking ${name}..."
+  while [[ $elapsed -lt $MAX_WAIT ]]; do
+    if docker exec "$container" wget -qO- "http://127.0.0.1:5000${path}" &>/dev/null; then
+      ok "${name} is healthy"
+      return 0
+    fi
+    sleep $INTERVAL
+    elapsed=$((elapsed + INTERVAL))
   done
   fail "${name} did not become healthy within ${MAX_WAIT}s"
   ALL_HEALTHY=false
@@ -39,8 +56,8 @@ wait_for() {
 
 echo ""
 echo "=== Service Health Check ==="
-wait_for "Backend"  "http://localhost:5000/health"  || true
-wait_for "Frontend" "http://localhost:${FRONTEND_PORT}/health" || true
+wait_for_container "Backend"  "banking_backend"  "/health" || true
+wait_for           "Frontend" "http://localhost:${FRONTEND_PORT}/health" || true
 
 echo ""
 echo "=== Container Status ==="
