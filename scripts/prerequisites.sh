@@ -1,81 +1,47 @@
-#!/usr/bin/env bash
-# =============================================================================
-# prerequisites.sh - Install and configure the full CI/CD pipeline stack
-#
-# Sets up everything needed to run the DTB Banking Portal pipeline:
-#   CI:          Tekton Pipelines, Triggers, Dashboard + tkn CLI
-#   Registry:    Docker Hub credentials
-#   Security:    Trivy, SonarQube, Kyverno, Cosign, Vault, ESO, Conftest
-#   Deploy:      ArgoCD + argocd CLI
-#   Observability: Prometheus, Grafana, Loki, OpenTelemetry Collector
-#   Infra:       Minikube, kubectl, Helm
-#
-# Usage:
-#   ./scripts/prerequisites.sh [OPTIONS]
-#
-# Options:
-#   --skip-minikube       Skip Minikube start/configure
-#   --skip-tekton         Skip Tekton Pipelines/Triggers/Dashboard/tkn
-#   --skip-security       Skip Trivy, SonarQube, Kyverno, Cosign, Vault, ESO, Conftest
-#   --skip-argocd         Skip ArgoCD install
-#   --skip-observability  Skip Prometheus, Grafana, Loki, OTel
-#   --dry-run             Print what would be done without executing
-#   --help                Show this help message
-#
-# Environment variables (optional — script will prompt if not set):
-#   DOCKER_USERNAME       Docker Hub username
-#   DOCKER_PASSWORD       Docker Hub password or access token
-#   DOCKER_EMAIL          Docker Hub email (default: cicd@dtb.local)
-# =============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SCRIPT_DATE="2026-03-16"
 
-# =============================================================================
-# VERSION PINS — edit here to upgrade components
-# =============================================================================
+
 TEKTON_PIPELINES_VERSION="v0.68.0"
 TEKTON_TRIGGERS_VERSION="v0.30.0"
 TEKTON_DASHBOARD_VERSION="v0.52.0"
 TKN_CLI_VERSION="v0.40.0"
 ARGOCD_VERSION="v2.14.6"
-TRIVY_VERSION="0.63.0"      # used for apt repo (no leading v)
-CONFTEST_VERSION="0.58.0"   # used for binary download (no leading v)
+TRIVY_VERSION="0.63.0"      
+CONFTEST_VERSION="0.58.0"   
 MINIKUBE_VERSION="v1.38.1"
 MINIKUBE_CPUS=4
 MINIKUBE_MEMORY="8192"
 MINIKUBE_DISK="40g"
 MINIKUBE_K8S_VERSION="v1.32.3"
 
-# Helm chart versions — pinned as of ${SCRIPT_DATE}
-CHART_PROMETHEUS="69.8.2"     # kube-prometheus-stack (Prometheus 3 + Grafana 11)
-CHART_LOKI="2.10.2"           # loki-stack (Loki 2 + Promtail)
+
+CHART_PROMETHEUS="69.8.2"     
+CHART_LOKI="2.10.2"           
 CHART_OTEL="0.119.0"          # opentelemetry-collector
 CHART_SONARQUBE="10.8.0"      # sonarqube (Community Edition)
 CHART_KYVERNO="3.4.4"         # kyverno
 CHART_VAULT="0.30.0"          # vault (HashiCorp)
 CHART_ESO="0.14.1"            # external-secrets operator
 
-# =============================================================================
-# COLOURS & LOGGING — matches existing script conventions
-# =============================================================================
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; MAGENTA='\033[0;35m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; NC='\033[0m'
 
-info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
-success() { echo -e "${GREEN}[OK]${NC}    $*"; }
-warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+info()    { :; }
+success() { :; }
+section() { :; }
+url()     { :; }
+warn()    { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-section() { echo -e "\n${BOLD}${MAGENTA}══ $* ══${NC}"; }
-url()     { echo -e "  ${CYAN}$*${NC}"; }
 die()     { error "$*"; exit 1; }
 
-# =============================================================================
-# ARGUMENT PARSING & GLOBAL STATE
-# =============================================================================
+
 SKIP_MINIKUBE=false
 SKIP_TEKTON=false
 SKIP_SECURITY=false
@@ -100,10 +66,10 @@ print_usage() {
   echo "  --dry-run             Print actions without executing"
   echo "  --help                Show this help"
   echo ""
-  echo "Environment variables:"
-  echo "  DOCKER_USERNAME       Docker Hub username"
-  echo "  DOCKER_PASSWORD       Docker Hub password/token"
-  echo "  DOCKER_EMAIL          Docker Hub email (default: cicd@dtb.local)"
+  echo "Credentials:"
+  echo "  Run ./scripts/k8s/vault-credentials.sh after this script to store"
+  echo "  all credentials (Docker Hub, SonarQube, GitHub, Grafana, JWT, MongoDB)"
+  echo "  in Vault and create the required Kubernetes secrets."
   echo ""
 }
 
@@ -123,9 +89,7 @@ parse_args() {
   done
 }
 
-# =============================================================================
-# CORE UTILITY FUNCTIONS
-# =============================================================================
+
 
 check_command() { command -v "$1" &>/dev/null; }
 
@@ -133,7 +97,7 @@ record_installed() { INSTALLED+=("$1"); }
 record_skipped()   { SKIPPED+=("$1"); }
 record_failed()    { FAILED+=("$1"); }
 
-# dry_run_gate: if DRY_RUN, print what would happen and return 1 (callers: || return 0)
+
 dry_run_gate() {
   if $DRY_RUN; then
     info "DRY RUN: would $*"
@@ -145,7 +109,6 @@ dry_run_gate() {
 install_apt_package() {
   local pkg="$1"
   if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-    info "$pkg already installed, skipping"
     record_skipped "$pkg"
     return 0
   fi
@@ -154,9 +117,7 @@ install_apt_package() {
   record_installed "$pkg"
 }
 
-# install_binary: idempotent binary installer from URL
-# Supports plain binaries and .tar.gz archives (extracts the named binary)
-# Args: name url [dest=/usr/local/bin] [is_archive=false] [archive_entry=name]
+
 install_binary() {
   local name="$1"
   local url="$2"
@@ -165,7 +126,6 @@ install_binary() {
   local archive_entry="${5:-$name}"
 
   if check_command "$name"; then
-    info "$name already installed ($(command -v "$name")), skipping"
     record_skipped "$name"
     return 0
   fi
@@ -177,58 +137,66 @@ install_binary() {
   trap "rm -rf $tmp" RETURN
 
   if $is_archive; then
-    info "Downloading $name archive..."
     curl -fsSL "$url" -o "$tmp/$name.tar.gz"
     tar -xzf "$tmp/$name.tar.gz" -C "$tmp" "$archive_entry" 2>/dev/null \
       || tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
     sudo install "$tmp/$archive_entry" "$dest/$name"
   else
-    info "Downloading $name binary..."
     curl -fsSL "$url" -o "$tmp/$name"
     sudo install "$tmp/$name" "$dest/$name"
   fi
 
-  success "$name installed to $dest/$name"
   record_installed "$name"
 }
 
 wait_for_deployment() {
   local ns="$1" name="$2" timeout="${3:-120}"
-  info "Waiting for deployment/$name in namespace $ns (timeout: ${timeout}s)..."
   if ! kubectl rollout status deployment/"$name" -n "$ns" --timeout="${timeout}s"; then
-    warn "Deployment $name in $ns did not become ready within ${timeout}s"
+    warn "deployment/$name in $ns not ready within ${timeout}s — check: kubectl get pods -n $ns"
     return 1
   fi
-  success "deployment/$name is ready"
 }
 
 wait_for_statefulset() {
   local ns="$1" name="$2" timeout="${3:-120}"
-  info "Waiting for statefulset/$name in namespace $ns (timeout: ${timeout}s)..."
   if ! kubectl rollout status statefulset/"$name" -n "$ns" --timeout="${timeout}s"; then
-    warn "StatefulSet $name in $ns did not become ready within ${timeout}s"
+    warn "statefulset/$name in $ns not ready within ${timeout}s — check: kubectl get pods -n $ns"
     return 1
   fi
-  success "statefulset/$name is ready"
 }
 
 wait_for_pods() {
   local ns="$1" selector="$2" timeout="${3:-120}"
-  info "Waiting for pods ($selector) in namespace $ns (timeout: ${timeout}s)..."
   if ! kubectl wait --for=condition=ready pod -l "$selector" -n "$ns" \
       --timeout="${timeout}s" 2>/dev/null; then
-    warn "Pods with selector '$selector' in $ns did not become ready within ${timeout}s"
+    warn "Pods with selector '$selector' in $ns did not become ready within ${timeout}s — check: kubectl get pods -n $ns -l $selector"
     return 1
   fi
-  success "pods ($selector) in $ns are ready"
 }
 
-# helm_install_or_upgrade: idempotent Helm release management
-# If release exists: upgrade (reuse values); otherwise: install
+pods_running() {
+  # pods_running <namespace> <label-selector>
+  # Returns 0 if at least one Running pod matches the selector
+  kubectl get pods -n "$1" -l "$2" --no-headers 2>/dev/null \
+    | grep -q "^[^ ]* \+[0-9]*/[0-9]* \+Running"
+}
+
+
 helm_install_or_upgrade() {
   local release="$1" chart="$2" ns="$3" version="$4"
   shift 4
-  local extra_args=("$@")
+
+  # Extract --helm-timeout from args before passing the rest to helm
+  local helm_timeout="5m0s"
+  local extra_args=()
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--helm-timeout" ]]; then
+      shift; helm_timeout="$1"
+    else
+      extra_args+=("$1")
+    fi
+    shift
+  done
 
   dry_run_gate "helm install/upgrade $release ($chart) in $ns" || {
     record_skipped "$release"
@@ -236,22 +204,20 @@ helm_install_or_upgrade() {
   }
 
   if helm status "$release" -n "$ns" &>/dev/null; then
-    info "$release already installed in $ns, upgrading if needed..."
     helm upgrade "$release" "$chart" -n "$ns" \
       --version "$version" \
       --reuse-values \
       "${extra_args[@]}" 2>/dev/null \
-      || info "$release already at target version, no upgrade needed"
+      || true
     record_skipped "$release"
   else
-    info "Installing $release ($chart v$version) in namespace $ns..."
     helm install "$release" "$chart" \
       -n "$ns" \
       --version "$version" \
       --create-namespace \
       --wait \
+      --timeout "$helm_timeout" \
       "${extra_args[@]}"
-    success "$release installed"
     record_installed "$release"
   fi
 }
@@ -263,7 +229,6 @@ create_namespace_if_absent() {
   fi
   dry_run_gate "create namespace $ns" || return 0
   kubectl create namespace "$ns"
-  info "Created namespace: $ns"
 }
 
 # =============================================================================
@@ -283,7 +248,7 @@ trap 'on_error $LINENO' ERR
 # FINAL SUMMARY
 # =============================================================================
 print_summary() {
-  section "Installation Summary"
+  echo -e "\n${BOLD}${MAGENTA}══ Installation Summary ══${NC}"
 
   if [[ ${#INSTALLED[@]} -gt 0 ]]; then
     echo -e "  ${GREEN}Installed${NC}  (${#INSTALLED[@]}): ${INSTALLED[*]}"
@@ -295,12 +260,12 @@ print_summary() {
     echo -e "  ${RED}FAILED${NC}     (${#FAILED[@]}): ${FAILED[*]}"
   fi
 
-  section "Access URLs  (use kubectl port-forward to access)"
+  echo -e "\n${BOLD}${MAGENTA}══ Access URLs  (use kubectl port-forward to access) ══${NC}"
 
   echo ""
   echo -e "  ${BOLD}ArgoCD${NC}"
-  url "    kubectl port-forward svc/argocd-server -n argocd 8080:443 &"
-  url "    https://localhost:8080"
+  echo -e "  ${CYAN}    kubectl port-forward svc/argocd-server -n argocd 8080:443 &${NC}"
+  echo -e "  ${CYAN}    https://localhost:8080${NC}"
   if [[ -n "$ARGOCD_PASSWORD" ]]; then
     echo  "    Username: admin  |  Password: $ARGOCD_PASSWORD"
   else
@@ -309,38 +274,42 @@ print_summary() {
 
   echo ""
   echo -e "  ${BOLD}Tekton Dashboard${NC}"
-  url "    kubectl port-forward svc/tekton-dashboard -n tekton-dashboard 9097:9097 &"
-  url "    http://localhost:9097"
+  echo -e "  ${CYAN}    kubectl port-forward svc/tekton-dashboard -n tekton-pipelines 9097:9097 &${NC}"
+  echo -e "  ${CYAN}    http://localhost:9097${NC}"
 
   echo ""
   echo -e "  ${BOLD}SonarQube${NC}"
-  url "    kubectl port-forward svc/sonarqube-sonarqube -n sonarqube 9000:9000 &"
-  url "    http://localhost:9000"
-  echo  "    Username: admin  |  Password: admin  (change on first login)"
+  echo -e "  ${CYAN}    kubectl port-forward svc/sonarqube-sonarqube -n sonarqube 9000:9000 &${NC}"
+  echo -e "  ${CYAN}    http://localhost:9000${NC}"
+  echo  "    Credentials: see Vault at secret/banking/sonarqube"
 
   echo ""
   echo -e "  ${BOLD}Grafana${NC}"
-  url "    kubectl port-forward svc/prometheus-grafana -n monitoring 3001:80 &"
-  url "    http://localhost:3001"
-  echo  "    Username: admin  |  Password: admin123"
+  echo -e "  ${CYAN}    kubectl port-forward svc/prometheus-grafana -n monitoring 3001:80 &${NC}"
+  echo -e "  ${CYAN}    http://localhost:3001${NC}"
+  echo  "    Credentials: see Vault at secret/banking/grafana"
 
   echo ""
   echo -e "  ${BOLD}Vault UI${NC}"
-  url "    kubectl port-forward svc/vault -n vault 8200:8200 &"
-  url "    http://localhost:8200"
+  echo -e "  ${CYAN}    kubectl port-forward svc/vault -n vault 8200:8200 &${NC}"
+  echo -e "  ${CYAN}    http://localhost:8200${NC}"
   echo  "    Token: root  (DEV MODE — in-memory only)"
 
   echo ""
   echo -e "  ${BOLD}Prometheus${NC}"
-  url "    kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090 &"
-  url "    http://localhost:9090"
+  echo -e "  ${CYAN}    kubectl port-forward svc/prometheus-kube-prometheus-prometheus -n monitoring 9090:9090 &${NC}"
+  echo -e "  ${CYAN}    http://localhost:9090${NC}"
 
   echo ""
   echo -e "  ${BOLD}Quick CLI checks${NC}"
   echo  "    tkn pipeline list -n tekton-pipelines"
-  echo  "    argocd login localhost:8080 --username admin --password \$ARGOCD_PASSWORD --insecure"
   echo  "    trivy --version && cosign version && conftest --version"
   echo  "    kubectl get pods -A"
+  echo ""
+  echo -e "  ${YELLOW}${BOLD}Next step: load all credentials into Vault${NC}"
+  echo  "    ./scripts/k8s/vault-credentials.sh"
+  echo  "  This creates Docker Hub regcred, SonarQube token, GitHub webhook,"
+  echo  "  Grafana admin secret, and all banking app secrets in one go."
   echo ""
 }
 
@@ -370,23 +339,6 @@ run_preflight() {
     success "Internet: reachable"
   else
     die "Internet access is required. Cannot reach https://github.com"
-  fi
-
-  # Disk space (require ≥20GB free on /)
-  local free_gb
-  free_gb=$(df -BG / | awk 'NR==2{print $4}' | tr -d 'G')
-  if [[ "$free_gb" -lt 20 ]]; then
-    die "Insufficient disk space: ${free_gb}GB free on /. At least 20GB required."
-  fi
-  success "Disk: ${free_gb}GB free"
-
-  # RAM (require ≥10GB total)
-  local total_mb
-  total_mb=$(free -m | awk '/^Mem:/{print $2}')
-  if [[ "$total_mb" -lt 10240 ]]; then
-    warn "Total RAM: ${total_mb}MB. Recommended: 10240MB+. SonarQube and minikube may struggle."
-  else
-    success "RAM: ${total_mb}MB total"
   fi
 
   # Docker daemon
@@ -608,54 +560,6 @@ create_namespaces() {
 }
 
 # =============================================================================
-# PHASE 8: DOCKER HUB CREDENTIALS
-# =============================================================================
-setup_docker_credentials() {
-  section "Docker Hub Credentials"
-
-  # Gather credentials — prompt only in interactive sessions
-  if [[ -z "${DOCKER_USERNAME:-}" ]]; then
-    if [[ -t 0 ]]; then
-      read -rp "Docker Hub username: " DOCKER_USERNAME
-    else
-      die "DOCKER_USERNAME env var is required in non-interactive mode"
-    fi
-  fi
-
-  if [[ -z "${DOCKER_PASSWORD:-}" ]]; then
-    if [[ -t 0 ]]; then
-      read -rsp "Docker Hub password/token: " DOCKER_PASSWORD
-      echo ""
-    else
-      die "DOCKER_PASSWORD env var is required in non-interactive mode"
-    fi
-  fi
-
-  local email="${DOCKER_EMAIL:-cicd@dtb.local}"
-
-  dry_run_gate "docker login and create regcred secrets" || return 0
-
-  # Login to Docker Hub
-  echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-  success "Logged in to Docker Hub as $DOCKER_USERNAME"
-
-  # Create regcred image pull secret in relevant namespaces
-  # Using --dry-run=client -o yaml | kubectl apply -f - for idempotency
-  local secret_namespaces=(banking tekton-pipelines argocd kyverno)
-  for ns in "${secret_namespaces[@]}"; do
-    kubectl create secret docker-registry regcred \
-      --docker-server=https://index.docker.io/v1/ \
-      --docker-username="$DOCKER_USERNAME" \
-      --docker-password="$DOCKER_PASSWORD" \
-      --docker-email="$email" \
-      -n "$ns" \
-      --dry-run=client -o yaml | kubectl apply -f -
-    info "Docker Hub regcred secret applied in namespace: $ns"
-  done
-  success "Docker Hub credentials configured in all namespaces"
-}
-
-# =============================================================================
 # PHASE 9: TEKTON CI
 # =============================================================================
 setup_tekton() {
@@ -678,8 +582,9 @@ setup_tekton() {
   fi
 
   # ── Tekton Triggers ───────────────────────────────────────────────────────
-  section "Tekton Triggers"
-  if kubectl get deployment tekton-triggers-controller -n tekton-triggers &>/dev/null; then
+  # NOTE: Tekton Triggers deploys into tekton-pipelines namespace, NOT a
+  # separate tekton-triggers namespace (that namespace is unused by the release).
+  if kubectl get deployment tekton-triggers-controller -n tekton-pipelines &>/dev/null; then
     info "Tekton Triggers already installed, skipping"
     record_skipped "tekton-triggers"
   else
@@ -688,15 +593,19 @@ setup_tekton() {
       local tbase="https://storage.googleapis.com/tekton-releases/triggers/previous"
       kubectl apply -f "${tbase}/${TEKTON_TRIGGERS_VERSION}/release.yaml"
       kubectl apply -f "${tbase}/${TEKTON_TRIGGERS_VERSION}/interceptors.yaml"
-      wait_for_deployment tekton-triggers tekton-triggers-controller 120
+      wait_for_deployment tekton-pipelines tekton-triggers-controller 120
+      wait_for_deployment tekton-pipelines tekton-triggers-webhook 120 \
+        || warn "tekton-triggers-webhook slow — check: kubectl get pods -n tekton-pipelines"
+      wait_for_deployment tekton-pipelines tekton-triggers-core-interceptors 120 \
+        || warn "tekton-triggers-core-interceptors slow — check: kubectl get pods -n tekton-pipelines"
       success "Tekton Triggers installed"
       record_installed "tekton-triggers"
     fi
   fi
 
   # ── Tekton Dashboard ──────────────────────────────────────────────────────
-  section "Tekton Dashboard"
-  if kubectl get deployment tekton-dashboard -n tekton-dashboard &>/dev/null; then
+  # NOTE: Tekton Dashboard deploys into tekton-pipelines namespace, not tekton-dashboard.
+  if kubectl get deployment tekton-dashboard -n tekton-pipelines &>/dev/null; then
     info "Tekton Dashboard already installed, skipping"
     record_skipped "tekton-dashboard"
   else
@@ -704,14 +613,13 @@ setup_tekton() {
     if ! $DRY_RUN; then
       local dbase="https://storage.googleapis.com/tekton-releases/dashboard/previous"
       kubectl apply -f "${dbase}/${TEKTON_DASHBOARD_VERSION}/release.yaml"
-      wait_for_deployment tekton-dashboard tekton-dashboard 120
+      wait_for_deployment tekton-pipelines tekton-dashboard 120
       success "Tekton Dashboard installed"
       record_installed "tekton-dashboard"
     fi
   fi
 
   # ── tkn CLI ───────────────────────────────────────────────────────────────
-  section "tkn CLI"
   local tkn_ver="${TKN_CLI_VERSION#v}"  # strip leading v for filename
   local tkn_url="https://github.com/tektoncd/cli/releases/download/${TKN_CLI_VERSION}/tkn_${tkn_ver}_Linux_x86_64.tar.gz"
   install_binary tkn "$tkn_url" /usr/local/bin true tkn
@@ -743,29 +651,39 @@ setup_security() {
 
   # ── SonarQube ─────────────────────────────────────────────────────────────
   section "SonarQube"
-  helm_install_or_upgrade sonarqube sonarqube/sonarqube sonarqube "$CHART_SONARQUBE" \
-    --set service.type=NodePort \
-    --set resources.requests.memory=2Gi \
-    --set resources.limits.memory=4Gi \
-    --set persistence.enabled=true \
-    --set persistence.size=10Gi \
-    --timeout 600s
-  # SonarQube takes longer to start (JVM + PostgreSQL)
-  if ! $DRY_RUN && helm status sonarqube -n sonarqube &>/dev/null; then
-    wait_for_deployment sonarqube sonarqube 300 || warn "SonarQube is starting slowly — check: kubectl get pods -n sonarqube"
+  # SonarQube is slow to start (JVM warm-up + embedded PostgreSQL).
+  # --helm-timeout 20m0s prevents the context deadline exceeded error on first install.
+  if ! $DRY_RUN && pods_running sonarqube "app=sonarqube"; then
+    record_skipped "sonarqube"
+  else
+    helm_install_or_upgrade sonarqube sonarqube/sonarqube sonarqube "$CHART_SONARQUBE" \
+      --helm-timeout 20m0s \
+      --set service.type=NodePort \
+      --set resources.requests.memory=2Gi \
+      --set resources.limits.memory=4Gi \
+      --set persistence.enabled=true \
+      --set persistence.size=10Gi
+    if ! $DRY_RUN; then
+      wait_for_deployment sonarqube sonarqube 1200 \
+        || warn "SonarQube still starting — check: kubectl get pods -n sonarqube"
+    fi
   fi
 
   # ── Kyverno ───────────────────────────────────────────────────────────────
   section "Kyverno"
   # Install with failurePolicy=Ignore (audit mode) so webhook doesn't block other installs
-  helm_install_or_upgrade kyverno kyverno/kyverno kyverno "$CHART_KYVERNO" \
-    --set admissionController.replicas=1 \
-    --set backgroundController.replicas=1 \
-    --set cleanupController.replicas=1 \
-    --set admissionController.failurePolicy=Ignore
-  if ! $DRY_RUN && helm status kyverno -n kyverno &>/dev/null; then
-    wait_for_deployment kyverno kyverno-admission-controller 120 \
-      || warn "Kyverno admission controller check: kubectl get pods -n kyverno"
+  if ! $DRY_RUN && pods_running kyverno "app.kubernetes.io/name=kyverno"; then
+    record_skipped "kyverno"
+  else
+    helm_install_or_upgrade kyverno kyverno/kyverno kyverno "$CHART_KYVERNO" \
+      --set admissionController.replicas=1 \
+      --set backgroundController.replicas=1 \
+      --set cleanupController.replicas=1 \
+      --set admissionController.failurePolicy=Ignore
+    if ! $DRY_RUN; then
+      wait_for_deployment kyverno kyverno-admission-controller 120 \
+        || warn "Kyverno admission controller check: kubectl get pods -n kyverno"
+    fi
   fi
 
   # ── Cosign ────────────────────────────────────────────────────────────────
@@ -790,25 +708,33 @@ setup_security() {
   fi
 
   # Deploy Vault server in cluster (dev mode for local use)
-  helm_install_or_upgrade vault hashicorp/vault vault "$CHART_VAULT" \
-    --set server.dev.enabled=true \
-    --set server.dev.devRootToken="root" \
-    --set ui.enabled=true \
-    --set ui.serviceType=NodePort
-  if ! $DRY_RUN && helm status vault -n vault &>/dev/null; then
-    wait_for_pods vault "app.kubernetes.io/name=vault" 120 \
-      || warn "Vault pod check: kubectl get pods -n vault"
-    warn "Vault is running in DEV MODE — data is in-memory only and will be lost on pod restart. Never use this in production."
+  if ! $DRY_RUN && pods_running vault "app.kubernetes.io/name=vault"; then
+    record_skipped "vault"
+  else
+    helm_install_or_upgrade vault hashicorp/vault vault "$CHART_VAULT" \
+      --set server.dev.enabled=true \
+      --set server.dev.devRootToken="root" \
+      --set ui.enabled=true \
+      --set ui.serviceType=NodePort
+    if ! $DRY_RUN; then
+      wait_for_pods vault "app.kubernetes.io/name=vault" 120 \
+        || warn "Vault pod check: kubectl get pods -n vault"
+      warn "Vault is running in DEV MODE — data is in-memory only and will be lost on pod restart. Never use this in production."
+    fi
   fi
 
   # ── External Secrets Operator ─────────────────────────────────────────────
   section "External Secrets Operator (ESO)"
-  helm_install_or_upgrade external-secrets external-secrets/external-secrets \
-    external-secrets "$CHART_ESO" \
-    --set installCRDs=true
-  if ! $DRY_RUN && helm status external-secrets -n external-secrets &>/dev/null; then
-    wait_for_deployment external-secrets external-secrets 120 \
-      || warn "ESO check: kubectl get pods -n external-secrets"
+  if ! $DRY_RUN && pods_running external-secrets "app.kubernetes.io/name=external-secrets"; then
+    record_skipped "external-secrets"
+  else
+    helm_install_or_upgrade external-secrets external-secrets/external-secrets \
+      external-secrets "$CHART_ESO" \
+      --set installCRDs=true
+    if ! $DRY_RUN; then
+      wait_for_deployment external-secrets external-secrets 120 \
+        || warn "ESO check: kubectl get pods -n external-secrets"
+    fi
   fi
 
   # ── Conftest ──────────────────────────────────────────────────────────────
@@ -823,8 +749,7 @@ setup_security() {
 setup_argocd() {
   section "ArgoCD"
 
-  if kubectl get deployment argocd-server -n argocd &>/dev/null; then
-    info "ArgoCD already installed, skipping manifest apply"
+  if ! $DRY_RUN && pods_running argocd "app.kubernetes.io/name=argocd-server"; then
     record_skipped "argocd"
   else
     dry_run_gate "install ArgoCD $ARGOCD_VERSION" || { record_skipped "argocd"; }
@@ -833,38 +758,34 @@ setup_argocd() {
       kubectl apply -n argocd -f "$argocd_url"
       record_installed "argocd"
     fi
-  fi
 
-  if ! $DRY_RUN; then
-    wait_for_deployment argocd argocd-server 240 \
-      || warn "argocd-server slow — check: kubectl get pods -n argocd"
-    wait_for_deployment argocd argocd-repo-server 180 \
-      || warn "argocd-repo-server slow"
-    # app-controller is a StatefulSet, not a Deployment
-    wait_for_statefulset argocd argocd-application-controller 180 \
-      || warn "argocd-application-controller slow"
+    if ! $DRY_RUN; then
+      wait_for_deployment argocd argocd-server 240 \
+        || warn "argocd-server slow — check: kubectl get pods -n argocd"
+      wait_for_deployment argocd argocd-repo-server 180 \
+        || warn "argocd-repo-server slow"
+      # app-controller is a StatefulSet, not a Deployment
+      wait_for_statefulset argocd argocd-application-controller 180 \
+        || warn "argocd-application-controller slow"
 
-    # Retrieve initial admin password (secret is created async by argocd-server)
-    info "Retrieving ArgoCD initial admin password..."
-    local attempts=0
-    while [[ $attempts -lt 30 ]]; do
-      ARGOCD_PASSWORD=$(
-        kubectl -n argocd get secret argocd-initial-admin-secret \
-          -o jsonpath="{.data.password}" 2>/dev/null \
-        | base64 -d 2>/dev/null
-      ) && [[ -n "$ARGOCD_PASSWORD" ]] && break
-      sleep 5
-      attempts=$((attempts + 1))
-    done
-    if [[ -n "$ARGOCD_PASSWORD" ]]; then
-      success "ArgoCD initial password retrieved"
-    else
-      warn "Could not retrieve ArgoCD initial password. Run: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+      # Retrieve initial admin password (secret is created async by argocd-server)
+      local attempts=0
+      while [[ $attempts -lt 30 ]]; do
+        ARGOCD_PASSWORD=$(
+          kubectl -n argocd get secret argocd-initial-admin-secret \
+            -o jsonpath="{.data.password}" 2>/dev/null \
+          | base64 -d 2>/dev/null
+        ) && [[ -n "$ARGOCD_PASSWORD" ]] && break
+        sleep 5
+        attempts=$((attempts + 1))
+      done
+      if [[ -z "$ARGOCD_PASSWORD" ]]; then
+        warn "Could not retrieve ArgoCD initial password. Run: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+      fi
     fi
   fi
 
   # ── argocd CLI ────────────────────────────────────────────────────────────
-  section "argocd CLI"
   local argocd_cli_url="https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
   install_binary argocd "$argocd_cli_url"
 }
@@ -875,41 +796,61 @@ setup_argocd() {
 setup_observability() {
   # ── Prometheus + Grafana (kube-prometheus-stack) ──────────────────────────
   section "Prometheus + Grafana"
-  helm_install_or_upgrade prometheus prometheus-community/kube-prometheus-stack \
-    monitoring "$CHART_PROMETHEUS" \
-    --set prometheus.prometheusSpec.retention=7d \
-    --set grafana.adminPassword=admin123 \
-    --set grafana.service.type=NodePort \
-    --set alertmanager.enabled=false
-  if ! $DRY_RUN && helm status prometheus -n monitoring &>/dev/null; then
-    wait_for_deployment monitoring prometheus-grafana 180 \
-      || warn "Grafana slow — check: kubectl get pods -n monitoring"
-    # Prometheus itself is a StatefulSet
-    wait_for_statefulset monitoring prometheus-prometheus-kube-prometheus-prometheus 180 \
-      || warn "Prometheus StatefulSet slow"
+  # Grafana admin password is set by vault-credentials.sh via grafana-admin-secret.
+  # Helm reads it from the existing secret if present; otherwise defaults to 'admin'
+  # until vault-credentials.sh is run.
+  if ! $DRY_RUN && pods_running monitoring "app.kubernetes.io/name=grafana"; then
+    record_skipped "prometheus"
+  else
+    helm_install_or_upgrade prometheus prometheus-community/kube-prometheus-stack \
+      monitoring "$CHART_PROMETHEUS" \
+      --set prometheus.prometheusSpec.retention=7d \
+      --set grafana.admin.existingSecret=grafana-admin-secret \
+      --set grafana.admin.userKey=admin-user \
+      --set grafana.admin.passwordKey=admin-password \
+      --set grafana.service.type=NodePort \
+      --set alertmanager.enabled=false
+    if ! $DRY_RUN; then
+      wait_for_deployment monitoring prometheus-grafana 180 \
+        || warn "Grafana slow — check: kubectl get pods -n monitoring"
+      # Prometheus itself is a StatefulSet
+      wait_for_statefulset monitoring prometheus-prometheus-kube-prometheus-prometheus 180 \
+        || warn "Prometheus StatefulSet slow"
+    fi
   fi
 
   # ── Loki + Promtail ───────────────────────────────────────────────────────
   section "Loki + Promtail"
   # Deploy into monitoring namespace so Grafana can reach Loki by service name
-  helm_install_or_upgrade loki grafana/loki-stack \
-    monitoring "$CHART_LOKI" \
-    --set loki.persistence.enabled=true \
-    --set loki.persistence.size=10Gi \
-    --set promtail.enabled=true
-  if ! $DRY_RUN && helm status loki -n monitoring &>/dev/null; then
-    wait_for_pods monitoring "app=loki" 120 \
-      || warn "Loki pod check: kubectl get pods -n monitoring -l app=loki"
+  if ! $DRY_RUN && pods_running monitoring "app=loki"; then
+    record_skipped "loki"
+  else
+    helm_install_or_upgrade loki grafana/loki-stack \
+      monitoring "$CHART_LOKI" \
+      --set loki.persistence.enabled=true \
+      --set loki.persistence.size=10Gi \
+      --set promtail.enabled=true
+    if ! $DRY_RUN; then
+      wait_for_pods monitoring "app=loki" 120 \
+        || warn "Loki pod check: kubectl get pods -n monitoring -l app=loki"
+    fi
   fi
 
   # ── OpenTelemetry Collector ───────────────────────────────────────────────
   section "OpenTelemetry Collector"
-  helm_install_or_upgrade otel-collector open-telemetry/opentelemetry-collector \
-    otel "$CHART_OTEL" \
-    --set mode=deployment
-  if ! $DRY_RUN && helm status otel-collector -n otel &>/dev/null; then
-    wait_for_deployment otel otel-collector-opentelemetry-collector 120 \
-      || warn "OTel Collector check: kubectl get pods -n otel"
+  # image.repository is required since chart v0.90 — must be explicitly set.
+  # otel/opentelemetry-collector-k8s is the recommended K8s-optimised image.
+  if ! $DRY_RUN && pods_running otel "app.kubernetes.io/name=opentelemetry-collector"; then
+    record_skipped "otel-collector"
+  else
+    helm_install_or_upgrade otel-collector open-telemetry/opentelemetry-collector \
+      otel "$CHART_OTEL" \
+      --set mode=deployment \
+      --set image.repository=otel/opentelemetry-collector-k8s
+    if ! $DRY_RUN; then
+      wait_for_deployment otel otel-collector-opentelemetry-collector 120 \
+        || warn "OTel Collector not ready — check: kubectl get pods -n otel"
+    fi
   fi
 }
 
@@ -918,14 +859,6 @@ setup_observability() {
 # =============================================================================
 main() {
   parse_args "$@"
-
-  echo ""
-  echo -e "${BOLD}DTB Banking Portal — CI/CD Prerequisites Setup${NC}"
-  echo -e "Chart versions pinned as of ${SCRIPT_DATE}. Run 'helm search repo <name>' to check for updates."
-  if $DRY_RUN; then
-    echo -e "${YELLOW}DRY RUN MODE — no changes will be made${NC}"
-  fi
-  echo ""
 
   run_preflight
   install_system_utilities
@@ -941,10 +874,9 @@ main() {
 
   setup_helm
 
-  # Namespaces and credentials require a running cluster
+  # Namespaces require a running cluster
   if ! $SKIP_MINIKUBE; then
     create_namespaces
-    setup_docker_credentials
   fi
 
   if $SKIP_TEKTON; then

@@ -1,0 +1,229 @@
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/description: >
+      Every container must declare CPU and memory limits to prevent
+      resource exhaustion attacks and noisy-neighbour issues.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-resource-limits
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking, tekton-pipelines]
+      validate:
+        message: "Container '{{request.object.spec.containers[*].name}}' must set resources.limits.cpu and resources.limits.memory"
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+
+---
+
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged-containers
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Disallow Privileged Containers
+    policies.kyverno.io/description: >
+      Privileged containers have full access to the host kernel.
+      No container in the banking namespace should run privileged.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-privileged
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      validate:
+        message: "Privileged containers are not allowed in the banking namespace"
+        pattern:
+          spec:
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root-user
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Require Non-Root User
+    policies.kyverno.io/description: >
+      Containers must not run as root (UID 0). Enforced via
+      runAsNonRoot: true or an explicit non-zero runAsUser.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-non-root
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      validate:
+        message: "Containers must run as non-root. Set securityContext.runAsNonRoot: true"
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          - spec:
+              securityContext:
+                runAsUser: ">0"
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privilege-escalation
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Disallow Privilege Escalation
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-privilege-escalation
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      validate:
+        message: "allowPrivilegeEscalation must be false"
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/description: >
+      Images must be pinned to a specific tag or digest for reproducibility
+      and auditability. Using :latest makes rollbacks and audits unreliable.
+spec:
+  validationFailureAction: Audit   
+  background: true
+  rules:
+    - name: check-image-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      validate:
+        message: "Image '{{request.object.spec.containers[*].image}}' must not use :latest tag. Use a specific version or SHA digest."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-signed-images
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Require Signed Images
+    policies.kyverno.io/description: >
+      All banking workload images must be signed by the Tekton pipeline
+      using Cosign before they are admitted to the cluster.
+      The public key is read from the cosign-key secret.
+spec:
+  validationFailureAction: Audit   
+  background: false
+  rules:
+    - name: check-image-signature
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      verifyImages:
+        - imageReferences:
+            - "docker.io/*/banking-backend:*"
+            - "docker.io/*/banking-frontend:*"
+          attestors:
+            - count: 1
+              entries:
+                - keys:
+                    publicKeys: |-
+                      # Paste your cosign public key here after running:
+                      # cosign generate-key-pair k8s://tekton-pipelines/cosign-key
+                      # kubectl get secret cosign-key -n tekton-pipelines -o jsonpath='{.data.cosign\.pub}' | base64 -d
+                      -----BEGIN PUBLIC KEY-----
+                      REPLACE_WITH_COSIGN_PUBLIC_KEY
+                      -----END PUBLIC KEY-----
+
+---
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-readonly-rootfs
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: security-policy
+  annotations:
+    policies.kyverno.io/title: Require Read-Only Root Filesystem
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-readonly-rootfs
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [banking]
+      validate:
+        message: "readOnlyRootFilesystem must be true. Use emptyDir volumes for writable paths."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true

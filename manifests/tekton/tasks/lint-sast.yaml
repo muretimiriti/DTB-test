@@ -114,3 +114,37 @@ spec:
           exit 1
         fi
         echo "No hardcoded secrets detected"
+
+    # ── Conftest OPA policy validation ──────────────────────────────────────
+    - name: conftest-policies
+      image: openpolicyagent/conftest:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/sh
+        set -e
+        echo "=== Running Conftest OPA policy checks ==="
+
+        # Verify policy file exists (committed to repo at policies/)
+        if [ ! -f "policies/k8s-security.rego" ]; then
+          echo "ERROR: policies/k8s-security.rego not found in repo"
+          exit 1
+        fi
+
+        FAILED=0
+        for manifest in \
+          manifests/k8s/backend/deployment.yaml \
+          manifests/k8s/frontend/deployment.yaml \
+          manifests/k8s/mongodb/statefulset.yaml; do
+          if [ -f "$manifest" ]; then
+            echo "--- Checking: $manifest ---"
+            conftest test "$manifest" \
+              --policy policies/ \
+              --output table || FAILED=1
+          fi
+        done
+
+        if [ $FAILED -ne 0 ]; then
+          echo "Conftest policy violations found — review output above"
+          exit 1
+        fi
+        echo "Conftest OPA checks passed"
