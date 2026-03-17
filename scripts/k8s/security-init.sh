@@ -31,7 +31,6 @@ record_fail() { FAIL+=("$1"); }
 
 
 SKIP_TRIVY=false
-SKIP_SONARQUBE=false
 SKIP_KYVERNO=false
 SKIP_COSIGN=false
 SKIP_VAULT=false
@@ -44,7 +43,6 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-trivy)     SKIP_TRIVY=true ;;
-      --skip-sonarqube) SKIP_SONARQUBE=true ;;
       --skip-kyverno)   SKIP_KYVERNO=true ;;
       --skip-cosign)    SKIP_COSIGN=true ;;
       --skip-vault)     SKIP_VAULT=true ;;
@@ -131,7 +129,7 @@ preflight() {
   success "Cluster: reachable"
 
   
-  local namespaces=(banking kyverno sonarqube vault external-secrets monitoring)
+  local namespaces=(banking kyverno vault external-secrets monitoring)
   for ns in "${namespaces[@]}"; do
     if ! kubectl get namespace "$ns" &>/dev/null; then
       warn "Namespace $ns missing — creating"
@@ -202,117 +200,12 @@ setup_trivy() {
 }
 
 
-setup_sonarqube() {
-  section "SonarQube — Static Code Analysis"
-
-  local SONAR_URL="http://localhost:9000"
-  local SONAR_NS="sonarqube"
-
-  
-  if ! pod_running "$SONAR_NS" "app=sonarqube"; then
-    info "SonarQube pod not ready — waiting up to 5 minutes (first start is slow)..."
-    $DRY_RUN || wait_for_pod "$SONAR_NS" "app=sonarqube" 300 || {
-      warn "SonarQube not ready. Helm install it first:"
-      echo "  helm install sonarqube sonarqube/sonarqube -n sonarqube \\"
-      echo "    --set service.type=NodePort --set persistence.enabled=true"
-      record_warn "sonarqube"
-      return 0
-    }
-  fi
-  success "SonarQube pod: Running"
-
-  
-  info "Port-forwarding SonarQube to localhost:9000..."
-  if ! lsof -i :9000 &>/dev/null 2>&1; then
-    $DRY_RUN || kubectl port-forward svc/sonarqube-sonarqube \
-      -n "$SONAR_NS" 9000:9000 &>/tmp/sonar-pf.log &
-    sleep 5
-  fi
-
-  
-  local elapsed=0
-  $DRY_RUN || while [[ $elapsed -lt 60 ]]; do
-    curl -sf "http://localhost:9000/api/system/status" &>/dev/null && break
-    sleep 5; elapsed=$((elapsed + 5))
-    info "Waiting for SonarQube API... (${elapsed}s)"
-  done
-
-  prompt_value SONAR_ADMIN_PASS "SonarQube admin password" "admin"
-
-  if $DRY_RUN; then
-    info "DRY RUN: would configure SonarQube project and quality gate"
-    record_pass "sonarqube"
-    return 0
-  fi
-
-  
-  local status
-  status=$(curl -sf -u "admin:${SONAR_ADMIN_PASS}" \
-    "${SONAR_URL}/api/system/status" 2>/dev/null \
-    | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "UNKNOWN")
-
-  if [[ "$status" != "UP" ]]; then
-    warn "SonarQube status: $status (expected UP)"
-    record_warn "sonarqube"
-    return 0
-  fi
-  success "SonarQube API: UP"
-
-  
-  local proj_key="dtb-banking-portal"
-  local proj_exists
-  proj_exists=$(curl -sf -u "admin:${SONAR_ADMIN_PASS}" \
-    "${SONAR_URL}/api/projects/search?projects=${proj_key}" \
-    | grep -c '"key"' || echo "0")
-
-  if [[ "$proj_exists" -eq 0 ]]; then
-    curl -sf -u "admin:${SONAR_ADMIN_PASS}" \
-      -X POST "${SONAR_URL}/api/projects/create" \
-      -d "name=DTB Banking Portal&project=${proj_key}&visibility=private" \
-      &>/dev/null
-    success "SonarQube project created: $proj_key"
-  else
-    info "SonarQube project already exists: $proj_key"
-  fi
-
-  
-  if ! secret_exists sonarqube-token tekton-pipelines; then
-    info "Generating SonarQube analysis token..."
-    local token_resp
-    token_resp=$(curl -sf -u "admin:${SONAR_ADMIN_PASS}" \
-      -X POST "${SONAR_URL}/api/user_tokens/generate" \
-      -d "name=tekton-pipeline-token&type=GLOBAL_ANALYSIS_TOKEN" 2>/dev/null || echo "{}")
-    local sonar_token
-    sonar_token=$(echo "$token_resp" | grep -o '"token":"[^"]*"' | cut -d'"' -f4 || echo "")
-
-    if [[ -n "$sonar_token" ]]; then
-      kubectl create secret generic sonarqube-token \
-        --from-literal=SONAR_TOKEN="$sonar_token" \
-        -n tekton-pipelines
-      success "SonarQube token created and stored as k8s secret"
-    else
-      warn "Could not generate SonarQube token — set SONAR_TOKEN manually"
-    fi
-  else
-    info "sonarqube-token secret already exists in tekton-pipelines"
-  fi
-
-  
-  info "Verifying Quality Gate: Sonar Way..."
-  curl -sf -u "admin:${SONAR_ADMIN_PASS}" \
-    "${SONAR_URL}/api/qualitygates/list" &>/dev/null \
-    && success "Quality Gate: configured (Sonar Way)" \
-    || warn "Could not verify Quality Gate"
-
-  record_pass "sonarqube"
-}
-
-
 setup_kyverno() {
   section "Kyverno — Admission Policy Enforcement"
 
   
-  if ! pod_running kyverno "app.kubernetes.io/name=kyverno"; then
+  if ! pod_running kyverno "app.kubernetes.io/component=admission-controller" && \
+     ! pod_running kyverno "app.kubernetes.io/name=kyverno"; then
     warn "Kyverno pods not running. Install via prerequisites.sh then re-run."
     record_warn "kyverno"
     return 0
@@ -859,25 +752,29 @@ run_health_checks() {
   $DRY_RUN && { success "Health checks skipped (dry run)"; return 0; }
 
   local components=(
-    "kyverno|kyverno|app.kubernetes.io/name=kyverno"
-    "sonarqube|sonarqube|app=sonarqube"
+    "kyverno-admission|kyverno|app.kubernetes.io/component=admission-controller"
+    "kyverno-background|kyverno|app.kubernetes.io/component=background-controller"
     "vault|vault|app.kubernetes.io/name=vault"
     "external-secrets|external-secrets|app.kubernetes.io/name=external-secrets"
   )
 
   echo ""
-  printf "  %-20s %-20s %s\n" "COMPONENT" "NAMESPACE" "STATUS"
-  printf "  %-20s %-20s %s\n" "---------" "---------" "------"
+  printf "  %-24s %-20s %s\n" "COMPONENT" "NAMESPACE" "STATUS"
+  printf "  %-24s %-20s %s\n" "---------" "---------" "------"
 
+  local all_ok=true
   for entry in "${components[@]}"; do
     IFS='|' read -r name ns selector <<< "$entry"
     if pod_running "$ns" "$selector"; then
-      printf "  ${GREEN}%-20s${NC} %-20s ${GREEN}%s${NC}\n" "$name" "$ns" "Running"
+      printf "  ${GREEN}%-24s${NC} %-20s ${GREEN}%s${NC}\n" "$name" "$ns" "Running"
     else
-      printf "  ${RED}%-20s${NC} %-20s ${RED}%s${NC}\n" "$name" "$ns" "Not Ready"
+      printf "  ${YELLOW}%-24s${NC} %-20s ${YELLOW}%s${NC}\n" "$name" "$ns" "Not Ready"
+      all_ok=false
     fi
   done
   echo ""
+  $all_ok && success "All security pods healthy" \
+    || warn "Some pods not ready — they may still be starting up"
 }
 
 
@@ -897,10 +794,6 @@ print_security_report() {
 
   echo ""
   echo -e "  ${BOLD}Access security UIs:${NC}"
-  echo ""
-  echo -e "  SonarQube:"
-  url "    kubectl port-forward svc/sonarqube-sonarqube -n sonarqube 9000:9000 &"
-  url "    http://localhost:9000  |  admin / admin"
   echo ""
   echo -e "  Vault UI:"
   url "    kubectl port-forward svc/vault -n vault 8200:8200 &"
@@ -941,31 +834,28 @@ main() {
   step 2  "Trivy — vulnerability scanning"
   $SKIP_TRIVY && { info "Skipping Trivy (--skip-trivy)"; record_warn "trivy"; } || setup_trivy
 
-  step 3  "SonarQube — code analysis"
-  $SKIP_SONARQUBE && { info "Skipping SonarQube (--skip-sonarqube)"; record_warn "sonarqube"; } || setup_sonarqube
-
-  step 4  "Kyverno — admission policies"
+  step 3  "Kyverno — admission policies"
   $SKIP_KYVERNO && { info "Skipping Kyverno (--skip-kyverno)"; record_warn "kyverno"; } || setup_kyverno
 
-  step 5  "Cosign — image signing"
+  step 4  "Cosign — image signing"
   $SKIP_COSIGN && { info "Skipping Cosign (--skip-cosign)"; record_warn "cosign"; } || setup_cosign
 
-  step 6  "Vault — secrets management"
+  step 5  "Vault — secrets management"
   $SKIP_VAULT && { info "Skipping Vault (--skip-vault)"; record_warn "vault"; } || setup_vault
 
-  step 7  "ESO — Vault → K8s secret sync"
+  step 6  "ESO — Vault → K8s secret sync"
   $SKIP_ESO && { info "Skipping ESO (--skip-eso)"; record_warn "eso"; } || setup_eso
 
-  step 8  "Conftest — OPA policy validation"
+  step 7  "Conftest — OPA policy validation"
   $SKIP_CONFTEST && { info "Skipping Conftest (--skip-conftest)"; record_warn "conftest"; } || setup_conftest
 
-  step 9  "Network policies"
+  step 8  "Network policies"
   $SKIP_NETPOL && { info "Skipping network policies (--skip-netpol)"; record_warn "network-policy"; } || setup_network_policies
 
-  step 10 "Health checks"
+  step 9  "Health checks"
   run_health_checks
 
-  step 11 "Security posture report"
+  step 10 "Security posture report"
   print_security_report
 }
 

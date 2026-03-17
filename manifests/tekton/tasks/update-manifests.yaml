@@ -1,14 +1,5 @@
-# =============================================================================
-# tasks/update-manifests.yaml — GitOps: Update Kustomize image tag
-#
-# After a successful build, this task:
-#   1. Clones the GitOps/manifests repo
-#   2. Runs: kustomize edit set image <image>:<new-tag>
-#   3. Commits and pushes the change
-#
-# ArgoCD detects the commit and syncs the new image to the cluster.
-# This is the GitOps promotion step — no direct kubectl apply in the pipeline.
-# =============================================================================
+
+
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -27,24 +18,19 @@ spec:
       description: Checked-out source (contains manifests/k8s/)
 
   params:
-    - name: docker-username
+    - name: image-repo
       type: string
-      description: Docker Hub username
+      default: "muretimiriti/dtb-project"
+      description: Docker Hub repo (e.g. muretimiriti/dtb-project)
     - name: image-tag
       type: string
-      description: New image tag (git commit SHA)
+      description: New image tag (git commit SHA or timestamp)
     - name: git-user-name
       type: string
       default: "Tekton Pipeline"
-      description: Git commit author name
     - name: git-user-email
       type: string
       default: "tekton@dtb.local"
-      description: Git commit author email
-    - name: git-token-secret
-      type: string
-      default: "git-credentials"
-      description: Secret containing GIT_TOKEN for push authentication
 
   steps:
     - name: kustomize-set-image
@@ -54,51 +40,66 @@ spec:
         - name: GIT_TOKEN
           valueFrom:
             secretKeyRef:
-              name: $(params.git-token-secret)
+              name: git-credentials
               key: GIT_TOKEN
+              optional: true
+        - name: REPO_URL
+          valueFrom:
+            secretKeyRef:
+              name: git-credentials
+              key: repo-url
+              optional: true
       script: |
         #!/bin/sh
         set -e
 
-        # Configure git identity
         git config user.name "$(params.git-user-name)"
         git config user.email "$(params.git-user-email)"
 
-        # Install kustomize
         echo "=== Installing kustomize ==="
         wget -qO /tmp/kustomize.tar.gz \
           https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
         tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
         chmod +x /usr/local/bin/kustomize
 
-        # Update image tags in kustomization.yaml
         echo "=== Updating image tags to $(params.image-tag) ==="
         cd manifests/k8s
 
         kustomize edit set image \
-          DOCKERHUB_USERNAME/banking-backend=$(params.docker-username)/banking-backend:$(params.image-tag)
+          "$(params.image-repo)-backend=$(params.image-repo)-backend:$(params.image-tag)"
 
         kustomize edit set image \
-          DOCKERHUB_USERNAME/banking-frontend=$(params.docker-username)/banking-frontend:$(params.image-tag)
+          "$(params.image-repo)-frontend=$(params.image-repo)-frontend:$(params.image-tag)"
 
-        # Verify the kustomization renders correctly
         kustomize build . > /dev/null
         echo "Kustomize build: OK"
 
-        # Commit and push
         git add kustomization.yaml
-        git diff --staged --quiet && echo "No changes to commit" && exit 0
+        if git diff --staged --quiet; then
+          echo "No changes to commit — image tag already up to date"
+          exit 0
+        fi
 
-        git commit -m "ci: update image tags to $(params.image-tag)
+        COMMIT_MSG=$(printf 'ci: update image tags to %s\n\nBackend:  %s-backend:%s\nFrontend: %s-frontend:%s\n\nskip ci' \
+          "$(params.image-tag)" \
+          "$(params.image-repo)" "$(params.image-tag)" \
+          "$(params.image-repo)" "$(params.image-tag)")
+        git commit -m "$COMMIT_MSG"
 
-Backend:  $(params.docker-username)/banking-backend:$(params.image-tag)
-Frontend: $(params.docker-username)/banking-frontend:$(params.image-tag)
+        REMOTE="${REPO_URL:-$(git remote get-url origin 2>/dev/null || echo '')}"
 
-[skip ci]"
-
-        # Push using token authentication
-        REMOTE=$(git remote get-url origin)
-        AUTHED_REMOTE=$(echo "$REMOTE" | sed "s|https://|https://token:${GIT_TOKEN}@|")
-        git push "$AUTHED_REMOTE" HEAD
+        if [ -n "${GIT_TOKEN:-}" ] && echo "$REMOTE" | grep -q "^https://"; then
+          echo "=== Pushing with token auth ==="
+          AUTHED="$(echo "$REMOTE" | sed 's|https://|https://x-token:'"${GIT_TOKEN}"'@|')"
+          git push "$AUTHED" HEAD
+        elif git remote get-url origin 2>/dev/null | grep -q "^git@"; then
+          echo "=== Pushing with SSH ==="
+          git push origin HEAD
+        else
+          echo "=== No GIT_TOKEN in git-credentials secret — skipping git push ==="
+          echo "    GitOps image tag update will not be committed."
+          echo "    To enable: add GIT_TOKEN key to the git-credentials secret."
+          exit 0
+        fi
 
         echo "=== Manifest update pushed — ArgoCD will sync automatically ==="

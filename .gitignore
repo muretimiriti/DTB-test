@@ -3,6 +3,12 @@
 .env.local
 .env.*.local
 
+# Docker credentials - NEVER commit
+scripts/docker/config.json
+docker/config.json
+cosign.pub
+cosign.key
+
 # Dependencies
 node_modules/
 **/node_modules/
@@ -19,6 +25,13 @@ yarn-debug.log*
 
 # Docker
 .docker/
+
+# Large binaries — never commit
+*.deb
+*.rpm
+*.tar.gz
+*.zip
+*.iso
 
 # OS files
 .DS_Store

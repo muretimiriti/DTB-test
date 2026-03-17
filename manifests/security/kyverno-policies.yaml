@@ -187,6 +187,7 @@ spec:
         - imageReferences:
             - "docker.io/*/banking-backend:*"
             - "docker.io/*/banking-frontend:*"
+          mutateDigest: false
           attestors:
             - count: 1
               entries:

@@ -43,12 +43,14 @@ spec:
     - name: image-tag
       type: string
       description: Tag for built images (usually the git commit SHA)
+    - name: image-repo
+      type: string
+      default: "muretimiriti/dtb-project"
+      description: Docker Hub repo (e.g. muretimiriti/dtb-project)
     - name: docker-username
       type: string
-      description: Docker Hub username
-    - name: sonar-token
-      type: string
-      description: SonarQube authentication token
+      default: ""
+      description: Docker Hub username (deprecated — use image-repo)
     - name: fail-on-audit
       type: string
       default: "true"
@@ -184,8 +186,8 @@ spec:
         - name: source
           workspace: pipeline-workspace
       params:
-        - name: docker-username
-          value: $(params.docker-username)
+        - name: image-repo
+          value: $(params.image-repo)
         - name: image-tag
           value: $(params.image-tag)
 
