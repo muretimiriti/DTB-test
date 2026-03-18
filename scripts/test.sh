@@ -9,6 +9,8 @@ info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "test.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 SUITE="${1:-all}"
 FAILED=0
@@ -24,7 +26,7 @@ run_backend_tests() {
 
   export NODE_ENV=test
   export MONGODB_URI="mongodb://localhost/banking_test_$$"
-  export JWT_SECRET="test_secret_for_ci_at_least_32_chars_long_1234"
+  export JWT_SECRET="${JWT_SECRET:-test_secret_for_ci_at_least_32_chars_long_1234}"
 
   case "$suite" in
     unit)        npm run test:unit || FAILED=1 ;;

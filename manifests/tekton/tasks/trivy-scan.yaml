@@ -39,7 +39,7 @@ spec:
 
   steps:
     - name: scan-backend
-      image: aquasec/trivy:latest
+      image: aquasec/trivy:0.58.2
       script: |
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-backend:$(params.image-tag)"
@@ -65,7 +65,7 @@ spec:
         echo "=== Backend image scan passed ==="
 
     - name: scan-frontend
-      image: aquasec/trivy:latest
+      image: aquasec/trivy:0.58.2
       script: |
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-frontend:$(params.image-tag)"

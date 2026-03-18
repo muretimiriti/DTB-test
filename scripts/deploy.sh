@@ -10,6 +10,8 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "deploy.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 cd "$PROJECT_ROOT"
 

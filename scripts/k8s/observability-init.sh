@@ -1,4 +1,4 @@
-
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -264,7 +264,7 @@ install_otel_collector() {
 
 retrieve_grafana_password() {
   section "Grafana Credentials"
-  $DRY_RUN && { GRAFANA_ADMIN_PASSWORD="dry-run-password"; return 0; }
+  $DRY_RUN && { GRAFANA_ADMIN_PASSWORD="${GRAFANA_DRY_RUN_PW:-<dry-run>}"; return 0; }
 
   if [[ -n "${GRAFANA_ADMIN_PASSWORD:-}" ]]; then
     log "using GRAFANA_ADMIN_PASSWORD from environment"
@@ -280,8 +280,8 @@ retrieve_grafana_password() {
     export GRAFANA_ADMIN_PASSWORD
     success "Grafana admin password retrieved from prometheus-grafana secret"
   else
-    GRAFANA_ADMIN_PASSWORD="prom-operator"
-    warn "prometheus-grafana secret not found — using chart default password: prom-operator"
+    GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-prom-operator}"
+    warn "prometheus-grafana secret not found — using chart default password (GRAFANA_ADMIN_PASSWORD)"
     warn "Set GRAFANA_ADMIN_PASSWORD env var to override"
   fi
 }

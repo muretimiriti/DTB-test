@@ -13,6 +13,8 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "port-forward.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 declare -A SVC_NS SVC_SVC SVC_LOCAL SVC_REMOTE SVC_PATH SVC_DESC
 

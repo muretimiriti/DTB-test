@@ -33,7 +33,7 @@ spec:
 
   steps:
     - name: kustomize-set-image
-      image: alpine/git:latest
+      image: alpine/git:2.45.2
       workingDir: $(workspaces.source.path)
       env:
         - name: GIT_TOKEN

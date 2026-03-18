@@ -29,7 +29,7 @@ All three tiers run in the `banking` namespace on Kubernetes. MongoDB uses a hea
 ## Stack at a Glance
 
 | Layer | Technology | Version |
-|---|---|---|
+| --- | --- | --- |
 | App | Node.js + React | - |
 | Database | MongoDB | 7.0 |
 | Container runtime | Docker + minikube | - |
@@ -86,11 +86,11 @@ All three tiers run in the `banking` namespace on Kubernetes. MongoDB uses a hea
 ## Prerequisites
 
 | Tool | Minimum version | Install |
-|---|---|---|
-| Docker | 20.x | https://docs.docker.com/engine/install/ |
-| minikube | 1.32+ | https://minikube.sigs.k8s.io/docs/start/ |
-| kubectl | 1.28+ | https://kubernetes.io/docs/tasks/tools/ |
-| Helm | 3.x | https://helm.sh/docs/intro/install/ |
+| --- | --- | --- |
+| Docker | 20.x | [docs.docker.com](https://docs.docker.com/engine/install/) |
+| minikube | 1.32+ | [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/docs/start/) |
+| kubectl | 1.28+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
+| Helm | 3.x | [helm.sh](https://helm.sh/docs/intro/install/) |
 | Git | any | system package |
 
 Internet access is required — Helm charts, Tekton releases, and container images are pulled at install time.
@@ -167,7 +167,7 @@ The single command that provisions the entire stack:
 
 This runs all 6 stages sequentially, waits for each to succeed, and writes a per-stage log to `logs/bootstrap/`.
 
-**Options:**
+**Options**
 
 ```bash
 # Skip stages already provisioned
@@ -183,10 +183,10 @@ This runs all 6 stages sequentially, waits for each to succeed, and writes a per
 ./scripts/bootstrap.sh --skip-observability
 ```
 
-**Stage flags:**
+**Stage flags**
 
 | Flag | Skips |
-|---|---|
+| --- | --- |
 | `--skip-prerequisites` | Stage 1 |
 | `--skip-credentials` | Stage 2 |
 | `--skip-security` | Stage 3 |
@@ -251,7 +251,7 @@ kubectl port-forward svc/vault -n vault 8200:8200 &
 ```
 
 | Service | URL | Credentials |
-|---|---|---|
+| --- | --- | --- |
 | Banking App (frontend) | http://banking.local | — |
 | Backend API | http://banking.local/api | JWT required |
 | Tekton Dashboard | http://localhost:9097 | no auth |
@@ -293,7 +293,7 @@ git-clone → lint-sast → ┬─ test-backend  ─┐
 ```
 
 | Stage | What it does |
-|---|---|
+| --- | --- |
 | `git-clone` | Clones the repository at the pushed commit |
 | `lint-sast` | ESLint, npm audit, hadolint (Dockerfile), gitleaks secret scan |
 | `test-backend` | Jest unit + integration tests, 80% coverage gate |
@@ -335,7 +335,7 @@ kubectl -n argocd patch application dtb-banking-portal \
 ## Security Controls
 
 | Control | Mechanism |
-|---|---|
+| --- | --- |
 | Secrets at rest | HashiCorp Vault KV v2 — never in git |
 | Secret injection | External Secrets Operator syncs Vault → k8s Secrets |
 | Admission policies | Kyverno — requires resource limits, non-root, no privilege escalation, signed images |
@@ -352,7 +352,7 @@ kubectl -n argocd patch application dtb-banking-portal \
 Three Grafana dashboards are imported automatically by `observability-init.sh`:
 
 | Dashboard | ID | Data source |
-|---|---|---|
+| --- | --- | --- |
 | Node Exporter Full | 1860 | Prometheus |
 | Kubernetes Cluster | 7249 | Prometheus |
 | Loki Logs | 13639 | Loki |
@@ -388,6 +388,7 @@ kubectl get policyreport -n banking
 ## Troubleshooting
 
 **Tekton install fails with `Kyverno webhook: connection refused`**
+
 Kyverno admission controller is not running — the bootstrap auto-patches Kyverno webhooks to `Ignore` during installs and restores them after. If running manually:
 ```bash
 kubectl patch validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg \
@@ -398,6 +399,7 @@ kubectl patch validatingwebhookconfiguration kyverno-resource-validating-webhook
 ```
 
 **`connection refused 192.168.49.2:8443` during bootstrap**
+
 The minikube API server dropped. The bootstrap waits up to 2 minutes for recovery:
 ```bash
 minikube status
@@ -406,18 +408,21 @@ minikube start
 ```
 
 **PipelineRun stuck or failing**
+
 ```bash
 tkn pipelinerun describe -n tekton-pipelines
 tkn pipelinerun logs <run-name> -f -n tekton-pipelines
 ```
 
 **ArgoCD not syncing**
+
 ```bash
 argocd app get dtb-banking-portal
 argocd app sync dtb-banking-portal --force
 ```
 
 **Stage logs**
+
 Each bootstrap stage writes a full log:
 ```bash
 cat logs/bootstrap/prerequisites.log
@@ -446,7 +451,7 @@ cd frontend && npm install && npm test
 ## Further Reading
 
 | Document | Path |
-|---|---|
+| --- | --- |
 | Architecture overview | [doc/architecture.md](doc/architecture.md) |
 | API reference | [doc/api-reference.md](doc/api-reference.md) |
 | Tekton pipeline walkthrough | [doc/tekton-walkthrough.md](doc/tekton-walkthrough.md) |

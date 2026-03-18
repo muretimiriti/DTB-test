@@ -1,0 +1,16 @@
+DTB Banking Portal — Code Review Report
+Generated: 2026-03-18T08:41:16Z
+Mode: AUTO_FIX=false STRICT=false
+
+SUMMARY
+  Files:     78
+  PASS:      76
+  WARN:      2
+  FAIL:      0
+  Fixed:     0
+
+FINDINGS
+[WARN] scripts/prerequisites.sh:351 — Unverified pipe-to-shell: consider checksum verification before executing downloaded scripts
+[WARN] scripts/prerequisites.sh:463 — Unverified pipe-to-shell: consider checksum verification before executing downloaded scripts
+[WARN] manifests/argocd/application.yaml — Workload has no resource requests/limits — set cpu/memory for scheduler predictability
+[WARN] manifests/argocd/application.yaml — Workload has no liveness/readiness probes — add probes for production health checks

@@ -1,4 +1,4 @@
-
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +16,8 @@ error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 section() { echo -e "\n${BOLD}${MAGENTA}══ $* ══${NC}"; }
 url()     { echo -e "  ${CYAN}$*${NC}"; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "security-init.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 step() {
   local n="$1"; shift

@@ -40,7 +40,7 @@ spec:
 
   steps:
     - name: clone
-      image: alpine/git:latest
+      image: alpine/git:2.45.2
       workingDir: $(workspaces.output.path)
       env:
         - name: GIT_TOKEN

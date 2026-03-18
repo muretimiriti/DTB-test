@@ -36,7 +36,7 @@ spec:
 
   steps:
     - name: run-smoke-tests
-      image: alpine/curl:latest
+      image: alpine/curl:8.11.0
       script: |
         set -e
         RETRIES=$(params.max-retries)

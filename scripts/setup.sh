@@ -10,6 +10,8 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "setup.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 check_tool() { command -v "$1" &>/dev/null || die "$1 is required but not installed"; }
 

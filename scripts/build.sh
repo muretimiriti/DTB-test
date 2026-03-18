@@ -9,6 +9,8 @@ info()    { echo -e "${BLUE}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "build.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 cd "$PROJECT_ROOT"
 

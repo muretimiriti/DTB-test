@@ -133,7 +133,8 @@ run_stage() {
   if [[ $exit_code -eq 0 ]]; then
     echo "PASS" > "$status_file"
     success "${label}: PASSED (elapsed: $(elapsed))"
-    eval "STAGE_$(echo "$name" | tr '[:lower:]' '[:upper:]')=true"
+    local _var_name="STAGE_$(echo "$name" | tr '[:lower:]' '[:upper:]')"
+    printf -v "$_var_name" "true"
   else
     echo "FAIL" > "$status_file"
     echo -e "${RED}[bootstrap] FAILED:${NC} ${label} exited with code ${exit_code}" >&2

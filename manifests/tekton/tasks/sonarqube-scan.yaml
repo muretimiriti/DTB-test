@@ -37,7 +37,7 @@ spec:
   steps:
    
     - name: run-sonar-scanner
-      image: sonarsource/sonar-scanner-cli:latest
+      image: sonarsource/sonar-scanner-cli:11.1
       workingDir: $(workspaces.source.path)
       env:
         - name: SONAR_HOST_URL
@@ -59,7 +59,7 @@ spec:
         echo "=== SonarQube analysis submitted ==="
 
     - name: check-quality-gate
-      image: alpine/curl:latest
+      image: alpine/curl:8.11.0
       script: |
         set -e
         echo "=== Waiting for Quality Gate result ==="

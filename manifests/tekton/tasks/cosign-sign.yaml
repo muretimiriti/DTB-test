@@ -30,7 +30,7 @@ spec:
 
   steps:
     - name: sign-backend
-      image: gcr.io/projectsigstore/cosign:latest
+      image: gcr.io/projectsigstore/cosign:v2.4.1
       env:
         - name: COSIGN_PASSWORD
           valueFrom:
@@ -54,7 +54,7 @@ spec:
           readOnly: true
 
     - name: sign-frontend
-      image: gcr.io/projectsigstore/cosign:latest
+      image: gcr.io/projectsigstore/cosign:v2.4.1
       env:
         - name: COSIGN_PASSWORD
           valueFrom:

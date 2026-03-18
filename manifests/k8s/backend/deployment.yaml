@@ -62,7 +62,7 @@ spec:
       containers:
         - name: backend
           
-          image: DOCKERHUB_USERNAME/banking-backend:latest
+          image: DOCKERHUB_USERNAME/banking-backend:v1.0.0
           imagePullPolicy: Always
           ports:
             - name: http

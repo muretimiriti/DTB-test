@@ -53,7 +53,7 @@ spec:
 
   steps:
     - name: build-and-push
-      image: gcr.io/kaniko-project/executor:latest
+      image: gcr.io/kaniko-project/executor:v1.23.2
       args:
         - "--dockerfile=$(workspaces.source.path)/$(params.context)/$(params.dockerfile)"
         - "--context=$(workspaces.source.path)/$(params.context)"

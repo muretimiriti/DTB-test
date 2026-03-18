@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AccountLookup from './AccountLookup';
 import { accountService } from '../services/api';
@@ -51,7 +51,7 @@ describe('AccountLookup', () => {
     await user.type(screen.getByLabelText(/account number/i), '1000000001');
     await user.type(screen.getByLabelText(/pin/i), '9999');
     await user.click(screen.getByRole('button', { name: /sign in/i }));
-    await waitFor(() => expect(screen.getByText(/Invalid account number or PIN/i)).toBeInTheDocument());
+    expect(await screen.findByText(/Invalid account number or PIN/i)).toBeInTheDocument();
   });
 
   it('calls onCreateNew when open account link is clicked', async () => {

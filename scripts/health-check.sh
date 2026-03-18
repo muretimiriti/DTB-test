@@ -8,6 +8,8 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✔${NC} $*"; }
 fail() { echo -e "  ${RED}✘${NC} $*"; }
 info() { echo -e "  ${YELLOW}•${NC} $*"; }
+cleanup() { local rc=$?; (( rc != 0 )) && echo -e "  ${RED}health-check.sh failed (exit $rc)${NC}" >&2; exit "$rc"; }
+trap cleanup ERR EXIT
 
 cd "$PROJECT_ROOT"
 source .env 2>/dev/null || true

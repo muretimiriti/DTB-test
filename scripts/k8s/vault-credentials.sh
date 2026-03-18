@@ -18,6 +18,8 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 section() { echo -e "\n${BOLD}${MAGENTA}══ $* ══${NC}"; }
 die()     { error "$*"; exit 1; }
+cleanup() { local rc=$?; (( rc != 0 )) && error "vault-credentials.sh failed (exit $rc)"; exit "$rc"; }
+trap cleanup ERR EXIT
 
 VAULT_TOKEN="${VAULT_TOKEN:-root}"
 SKIP_DOCKER=false

@@ -1,4 +1,4 @@
-
+#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -172,7 +172,7 @@ configure_polling_interval() {
 
 retrieve_admin_password() {
   section "Admin Credentials"
-  $DRY_RUN && { ARGOCD_ADMIN_PASSWORD="dry-run-password"; return 0; }
+  $DRY_RUN && { ARGOCD_ADMIN_PASSWORD="${ARGOCD_DRY_RUN_PW:-<dry-run>}"; return 0; }
 
   if [[ -n "${ARGOCD_ADMIN_PASSWORD:-}" ]]; then
     log "using ARGOCD_ADMIN_PASSWORD from environment"

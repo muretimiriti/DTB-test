@@ -37,7 +37,7 @@ spec:
 
   steps:
     - name: build-push-backend
-      image: gcr.io/kaniko-project/executor:latest
+      image: gcr.io/kaniko-project/executor:v1.23.2
       args:
         - "--dockerfile=$(workspaces.source.path)/backend/Dockerfile"
         - "--context=$(workspaces.source.path)/backend"
@@ -54,7 +54,7 @@ spec:
           mountPath: /kaniko/.docker/
 
     - name: build-push-frontend
-      image: gcr.io/kaniko-project/executor:latest
+      image: gcr.io/kaniko-project/executor:v1.23.2
       args:
         - "--dockerfile=$(workspaces.source.path)/frontend/Dockerfile"
         - "--context=$(workspaces.source.path)/frontend"
