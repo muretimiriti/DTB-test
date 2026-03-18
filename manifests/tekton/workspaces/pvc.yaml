@@ -1,9 +1,3 @@
-# =============================================================================
-# workspaces/pvc.yaml — Shared PersistentVolumeClaim for pipeline workspaces
-#
-# All tasks in a pipeline run share this volume to pass source code,
-# built artefacts, and scan results between steps.
-# =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

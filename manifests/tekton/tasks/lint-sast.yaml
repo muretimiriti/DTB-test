@@ -1,12 +1,4 @@
-# =============================================================================
-# tasks/lint-sast.yaml — Stage 1: Lint & Static Application Security Testing
-#
-# Runs:
-#   - ESLint on backend and frontend source
-#   - npm audit (dependency vulnerability check)
-#   - hadolint (Dockerfile linting)
-#   - Checks for hardcoded secrets (grep patterns)
-# =============================================================================
+
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -31,12 +23,11 @@ spec:
       description: Fail the task if npm audit finds high/critical vulnerabilities
 
   steps:
-    # ── Backend ESLint ──────────────────────────────────────────────────────
+    
     - name: eslint-backend
       image: node:20-alpine
       workingDir: $(workspaces.source.path)/backend
       script: |
-        #!/bin/sh
         set -e
         echo "=== Installing backend dependencies ==="
         npm ci --prefer-offline
@@ -45,12 +36,10 @@ spec:
           (echo "ESLint found issues in backend"; exit 1)
         echo "Backend ESLint passed"
 
-    # ── Frontend ESLint ─────────────────────────────────────────────────────
     - name: eslint-frontend
       image: node:20-alpine
       workingDir: $(workspaces.source.path)/frontend
       script: |
-        #!/bin/sh
         set -e
         echo "=== Installing frontend dependencies ==="
         npm ci --prefer-offline
@@ -59,12 +48,10 @@ spec:
           (echo "ESLint found issues in frontend"; exit 1)
         echo "Frontend ESLint passed"
 
-    # ── npm audit ───────────────────────────────────────────────────────────
     - name: npm-audit
       image: node:20-alpine
       workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
         set -e
         FAIL=$(params.fail-on-audit)
         echo "=== npm audit — backend ==="
@@ -82,12 +69,10 @@ spec:
           npm audit --audit-level=high || echo "WARN: audit issues found (non-blocking)"
         fi
 
-    # ── Dockerfile lint (hadolint) ──────────────────────────────────────────
     - name: hadolint
       image: hadolint/hadolint:latest-alpine
       workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
         set -e
         echo "=== Linting backend Dockerfile ==="
         hadolint backend/Dockerfile
@@ -95,12 +80,10 @@ spec:
         hadolint frontend/Dockerfile
         echo "Dockerfile lint passed"
 
-    # ── Secret scanning ─────────────────────────────────────────────────────
     - name: secret-scan
       image: alpine:3.19
       workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
         set -e
         echo "=== Scanning for hardcoded secrets ==="
         PATTERNS="password\s*=\s*['\"][^'\"]\|secret\s*=\s*['\"][^'\"]\|api_key\s*=\s*['\"][^'\"]"
@@ -115,16 +98,13 @@ spec:
         fi
         echo "No hardcoded secrets detected"
 
-    # ── Conftest OPA policy validation ──────────────────────────────────────
     - name: conftest-policies
       image: openpolicyagent/conftest:latest
       workingDir: $(workspaces.source.path)
       script: |
-        #!/bin/sh
         set -e
         echo "=== Running Conftest OPA policy checks ==="
 
-        # Verify policy file exists (committed to repo at policies/)
         if [ ! -f "policies/k8s-security.rego" ]; then
           echo "ERROR: policies/k8s-security.rego not found in repo"
           exit 1

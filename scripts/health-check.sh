@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# health-check.sh - Verify all services are healthy
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

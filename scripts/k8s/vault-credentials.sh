@@ -111,7 +111,13 @@ load_env() {
 
 kube_secret_apply() {
   $DRY_RUN && { info "DRY RUN: kubectl apply secret $*"; return 0; }
-  "$@" --dry-run=client -o yaml | kubectl apply -f -
+  local n=1 max=4 sleep_s=5
+  until "$@" --dry-run=client -o yaml | kubectl apply -f -; do
+    (( n >= max )) && { error "kubectl apply failed after $max attempts"; return 1; }
+    warn "kubectl apply failed (attempt $n/$max) — cluster may be restarting, retrying in ${sleep_s}s"
+    n=$(( n + 1 )); sleep "$sleep_s"
+    kubectl cluster-info --request-timeout=10s &>/dev/null || { warn "Cluster still unreachable — waiting longer"; sleep 10; }
+  done
 }
 
 preflight() {
@@ -186,11 +192,6 @@ setup_docker() {
   success "docker-repo secret created (repo: ${DOCKER_REPO})"
 }
 
-# setup_sonarqube() {
-#   Commented out — SonarQube token is handled by security-init.sh (Step 3)
-#   once SonarQube is fully up. Run security-init.sh after prerequisites.sh.
-# }
-
 setup_github() {
   section "GitHub Credentials"
 
@@ -221,11 +222,6 @@ setup_github() {
     -n banking
   success "git-credentials secret created in banking"
 }
-
-# setup_grafana() {
-#   Skipped — Grafana login is handled via Google OAuth (Gmail account).
-#   No local admin credentials needed.
-# }
 
 setup_app_secrets() {
   section "Application Secrets"
@@ -294,8 +290,6 @@ print_summary() {
   echo -e "  regcred                  → banking, tekton-pipelines, argocd, kyverno"
   echo -e "  docker-repo              → tekton-pipelines  (DOCKER_REPO=${DOCKER_REPO})"
   echo -e "  git-credentials          → tekton-pipelines, banking  (repo-url only)"
-
-
 
   echo ""
   echo -e "  ${BOLD}Synced by ESO after security-init.sh:${NC}"

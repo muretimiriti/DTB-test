@@ -15,7 +15,6 @@ const logger = require('./utils/logger');
 
 const app = express();
 
-// Security headers
 app.use(helmet());
 app.use(
   helmet.contentSecurityPolicy({
@@ -28,7 +27,6 @@ app.use(
   })
 );
 
-// CORS
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -44,14 +42,11 @@ app.use(
   })
 );
 
-// Body parsing
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
-// NoSQL injection prevention
 app.use(mongoSanitize());
 
-// HTTP logging (skip sensitive paths in production)
 if (config.nodeEnv !== 'test') {
   app.use(
     morgan('combined', {
@@ -61,18 +56,14 @@ if (config.nodeEnv !== 'test') {
   );
 }
 
-// Global rate limiter
 app.use(generalLimiter);
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
 app.use('/api/accounts', accountRoutes);
 
-// Error handling
 app.use(notFound);
 app.use(errorHandler);
 

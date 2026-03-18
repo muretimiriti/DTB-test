@@ -1,9 +1,3 @@
-# =============================================================================
-# tasks/test-backend.yaml — Stage 2 & 4: Backend Unit, Integration Tests + Coverage
-#
-# Runs the backend test suite using Jest with an in-memory MongoDB instance.
-# Enforces 80% line coverage minimum (matches project target).
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -41,7 +35,6 @@ spec:
         - name: CI
           value: "true"
       script: |
-        #!/bin/sh
         set -e
         echo "=== Installing backend dependencies ==="
         npm ci --prefer-offline

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# seed.sh - Seed the database with demo accounts for development/testing
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +27,6 @@ create_account() {
   success "Created: ${first} ${last} — Account: ${acc_num} | PIN: ${pin} | Balance: ${deposit}"
 }
 
-# Demo accounts (PIN = 1234 for all in dev)
 create_account "Alice"   "Wanjiku"  "alice.wanjiku@demo.dtb"  "+254700000001" "1234" "50000"
 create_account "Brian"   "Ochieng"  "brian.ochieng@demo.dtb"  "+254711000002" "2345" "25000"
 create_account "Carol"   "Muthoni"  "carol.muthoni@demo.dtb"  "+254722000003" "3456" "100000"

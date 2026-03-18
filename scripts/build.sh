@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# build.sh - Build Docker images for all services
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +14,6 @@ cd "$PROJECT_ROOT"
 
 [[ -f ".env" ]] || die ".env not found. Run ./scripts/setup.sh first"
 
-# Determine compose command
 if command -v docker-compose &>/dev/null; then
   COMPOSE="docker-compose"
 elif docker compose version &>/dev/null 2>&1; then
@@ -31,7 +27,6 @@ export BUILD_TAG
 
 info "Building all Docker images (tag: ${BUILD_TAG})..."
 
-# Lint Dockerfiles (if hadolint available)
 if command -v hadolint &>/dev/null; then
   info "Linting Dockerfiles..."
   hadolint backend/Dockerfile frontend/Dockerfile && success "Dockerfile linting passed"

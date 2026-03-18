@@ -33,7 +33,6 @@ spec:
 
 ---
 
-
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -193,9 +192,6 @@ spec:
               entries:
                 - keys:
                     publicKeys: |-
-                      # Paste your cosign public key here after running:
-                      # cosign generate-key-pair k8s://tekton-pipelines/cosign-key
-                      # kubectl get secret cosign-key -n tekton-pipelines -o jsonpath='{.data.cosign\.pub}' | base64 -d
                       -----BEGIN PUBLIC KEY-----
                       REPLACE_WITH_COSIGN_PUBLIC_KEY
                       -----END PUBLIC KEY-----

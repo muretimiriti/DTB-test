@@ -1,6 +1,4 @@
 
-# Development override - adds hot-reload and exposes ports for debugging
-
 services:
   mongodb:
     ports:

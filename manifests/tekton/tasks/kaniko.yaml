@@ -1,12 +1,4 @@
-# =============================================================================
-# tasks/kaniko.yaml — Build and push a Docker image using Kaniko
-#
-# Kaniko builds container images inside a Kubernetes pod without requiring
-# a Docker daemon (no privileged mode needed).
-#
-# This task builds ONE image at a time. It is called twice in the pipeline —
-# once for the backend and once for the frontend — with different params.
-# =============================================================================
+
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -78,11 +70,9 @@ spec:
         - name: DOCKER_CONFIG
           value: /kaniko/.docker
 
-    # Write the pushed image URL to results
     - name: write-url
       image: alpine:3.19
       script: |
-        #!/bin/sh
         echo -n "$(params.image)" | tee $(results.image-url.path)
 
   volumes:

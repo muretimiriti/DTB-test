@@ -8,14 +8,12 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach JWT token if available
 api.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('banking_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Normalize errors
 api.interceptors.response.use(
   (res) => res,
   (err) => {

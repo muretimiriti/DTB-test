@@ -1,14 +1,3 @@
-# =============================================================================
-# pipelines/cd-pipeline.yaml — CD Pipeline (Stages 8–10)
-#
-# Triggered when ArgoCD detects the manifest update from ci-pipeline.
-# Handles post-deployment validation and production promotion.
-#
-# Stages:
-#   8. Smoke tests on staging   (smoke-test task)
-#   9. Manual approval gate     (Tekton Approval or external trigger)
-#  10. Production promotion     (update-manifests to prod overlay)
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
@@ -46,7 +35,6 @@ spec:
 
   tasks:
 
-    # Stage 8: Clone manifests repo
     - name: git-clone
       taskRef:
         resolver: hub
@@ -64,7 +52,6 @@ spec:
         - name: revision
           value: main
 
-    # Stage 9: Smoke tests against staging
     - name: smoke-test-staging
       taskRef:
         name: smoke-test
@@ -75,9 +62,6 @@ spec:
         - name: frontend-url
           value: $(params.staging-frontend-url)
 
-    # Stage 10: Promote to production overlay
-    # Triggered manually or after smoke tests pass
-    # Updates manifests/environments/production/ kustomization image tag
     - name: promote-to-production
       taskRef:
         name: update-manifests
@@ -102,6 +86,5 @@ spec:
           - name: notify
             image: alpine:3.19
             script: |
-              #!/bin/sh
               echo "CD Pipeline completed"
               echo "Image tag $(params.image-tag) status: $(tasks.promote-to-production.status)"

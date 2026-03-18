@@ -1,11 +1,3 @@
-# =============================================================================
-# tasks/cosign-sign.yaml — Image Signing with Cosign (Sigstore)
-#
-# Signs both images using keyless signing (OIDC-based) or a Cosign key pair.
-# Signed images can be verified by Kyverno policy before deployment.
-#
-# Kyverno policy (in manifests/security/) will reject unsigned images.
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -37,7 +29,6 @@ spec:
       description: Name of the Secret containing the Cosign private key
 
   steps:
-    # ── Sign backend image ──────────────────────────────────────────────────
     - name: sign-backend
       image: gcr.io/projectsigstore/cosign:latest
       env:
@@ -47,7 +38,6 @@ spec:
               name: $(params.cosign-key-secret)
               key: COSIGN_PASSWORD
       script: |
-        #!/bin/sh
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-backend:$(params.image-tag)"
         echo "=== Signing backend image: $IMAGE ==="
@@ -63,7 +53,6 @@ spec:
           mountPath: /cosign
           readOnly: true
 
-    # ── Sign frontend image ─────────────────────────────────────────────────
     - name: sign-frontend
       image: gcr.io/projectsigstore/cosign:latest
       env:
@@ -73,7 +62,6 @@ spec:
               name: $(params.cosign-key-secret)
               key: COSIGN_PASSWORD
       script: |
-        #!/bin/sh
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-frontend:$(params.image-tag)"
         echo "=== Signing frontend image: $IMAGE ==="
@@ -92,4 +80,4 @@ spec:
   volumes:
     - name: cosign-key
       secret:
-        secretName: cosign-key   # create with: cosign generate-key-pair k8s://tekton-pipelines/cosign-key
+        secretName: cosign-key

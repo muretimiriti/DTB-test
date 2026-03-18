@@ -1,5 +1,4 @@
 
-
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -50,7 +49,6 @@ spec:
               key: repo-url
               optional: true
       script: |
-        #!/bin/sh
         set -e
 
         git config user.name "$(params.git-user-name)"

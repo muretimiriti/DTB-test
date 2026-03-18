@@ -1,10 +1,3 @@
-# =============================================================================
-# tasks/trivy-scan.yaml — Stage 6: Container Image Vulnerability Scan
-#
-# Scans both built images with Trivy.
-# Fails the pipeline on CRITICAL vulnerabilities (configurable).
-# Results are stored as a report in the workspace for audit trails.
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -45,11 +38,9 @@ spec:
       description: Trivy scan result for frontend image
 
   steps:
-    # ── Scan backend image ──────────────────────────────────────────────────
     - name: scan-backend
       image: aquasec/trivy:latest
       script: |
-        #!/bin/sh
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-backend:$(params.image-tag)"
         REPORT="$(workspaces.source.path)/trivy-backend-report.json"
@@ -63,7 +54,6 @@ spec:
           --no-progress \
           "$IMAGE"
 
-        # Also print table format for the pipeline log
         trivy image \
           --severity "$(params.severity)" \
           --exit-code 0 \
@@ -74,11 +64,9 @@ spec:
         echo "pass" | tee $(results.backend-scan-status.path)
         echo "=== Backend image scan passed ==="
 
-    # ── Scan frontend image ─────────────────────────────────────────────────
     - name: scan-frontend
       image: aquasec/trivy:latest
       script: |
-        #!/bin/sh
         set -e
         IMAGE="docker.io/$(params.docker-username)/banking-frontend:$(params.image-tag)"
         REPORT="$(workspaces.source.path)/trivy-frontend-report.json"

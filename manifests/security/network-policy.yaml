@@ -64,7 +64,6 @@ spec:
 
 ---
 
-
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -118,7 +117,6 @@ spec:
 
 ---
 
-
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -143,7 +141,6 @@ spec:
           protocol: TCP
 
 ---
-
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

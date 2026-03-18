@@ -1,9 +1,3 @@
-# =============================================================================
-# tasks/test-frontend.yaml — Stage 2 & 4: Frontend Unit Tests + Coverage
-#
-# Runs React Testing Library tests with Jest.
-# Enforces 60% line coverage minimum (matches project target).
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -41,7 +35,6 @@ spec:
         - name: NODE_ENV
           value: "test"
       script: |
-        #!/bin/sh
         set -e
         echo "=== Installing frontend dependencies ==="
         npm ci --prefer-offline

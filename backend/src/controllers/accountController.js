@@ -6,7 +6,6 @@ const { generateAccountNumber } = require('../utils/accountNumber');
 const config = require('../config/env');
 const logger = require('../utils/logger');
 
-// POST /api/accounts - Create new account
 const createAccount = async (req, res, next) => {
   try {
     const { firstName, lastName, email, phone, pin, initialDeposit } = req.body;
@@ -42,7 +41,6 @@ const createAccount = async (req, res, next) => {
   }
 };
 
-// POST /api/accounts/login - Authenticate with account number + PIN
 const login = async (req, res, next) => {
   try {
     const { accountNumber, pin } = req.body;
@@ -70,7 +68,6 @@ const login = async (req, res, next) => {
   }
 };
 
-// GET /api/accounts/:accountNumber - Get account details
 const getAccount = async (req, res, next) => {
   try {
     if (req.account.accountNumber !== req.params.accountNumber) {
@@ -82,7 +79,6 @@ const getAccount = async (req, res, next) => {
   }
 };
 
-// POST /api/accounts/:accountNumber/credit - Credit account
 const creditAccount = async (req, res, next) => {
   try {
     if (req.account.accountNumber !== req.params.accountNumber) {
@@ -108,7 +104,6 @@ const creditAccount = async (req, res, next) => {
   }
 };
 
-// POST /api/accounts/:accountNumber/debit - Debit account
 const debitAccount = async (req, res, next) => {
   try {
     if (req.account.accountNumber !== req.params.accountNumber) {
@@ -138,7 +133,6 @@ const debitAccount = async (req, res, next) => {
   }
 };
 
-// PATCH /api/accounts/:accountNumber/profile - Update profile
 const updateProfile = async (req, res, next) => {
   try {
     if (req.account.accountNumber !== req.params.accountNumber) {
@@ -160,7 +154,6 @@ const updateProfile = async (req, res, next) => {
   }
 };
 
-// GET /api/accounts/:accountNumber/transactions - Get transaction history
 const getTransactions = async (req, res, next) => {
   try {
     if (req.account.accountNumber !== req.params.accountNumber) {

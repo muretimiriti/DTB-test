@@ -1,5 +1,4 @@
 
-
 networks:
   frontend_net:
     driver: bridge
@@ -13,9 +12,6 @@ volumes:
     driver: local
 
 services:
-  # ─────────────────────────────────
-  # MongoDB
-  # ─────────────────────────────────
   mongodb:
     image: mongo:7.0
     container_name: banking_mongodb
@@ -32,7 +28,6 @@ services:
       MONGO_INITDB_DATABASE: banking_db
       MONGO_APP_USER: ${MONGO_APP_USER:-app_user}
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?MONGO_APP_PASSWORD is required}
-    # MongoDB NOT exposed externally - only accessible within backend_net
     expose:
       - "27017"
     healthcheck:
@@ -44,9 +39,6 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # ─────────────────────────────────
-  # Backend (Node.js / Express)
-  # ─────────────────────────────────
   backend:
     build:
       context: ./backend
@@ -85,16 +77,13 @@ services:
     tmpfs:
       - /tmp
 
-  # ─────────────────────────────────
-  # Frontend (React + Nginx)
-  # ─────────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: production
       args:
-        REACT_APP_API_URL: ""  # Empty = use nginx proxy path /api
+        REACT_APP_API_URL: ""
     container_name: banking_frontend
     restart: unless-stopped
     networks:

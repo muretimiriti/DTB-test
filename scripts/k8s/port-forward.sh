@@ -14,10 +14,6 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
-# =============================================================================
-# SERVICE DEFINITIONS
-# Format: "name|namespace|service|local_port|remote_port|url_path|description"
-# =============================================================================
 declare -A SVC_NS SVC_SVC SVC_LOCAL SVC_REMOTE SVC_PATH SVC_DESC
 
 define_service() {
@@ -44,9 +40,6 @@ define_service "otel"        "otel"             "otel-collector-opentelemetry-co
 
 ALL_SERVICES=(tekton argocd grafana prometheus alertmanager sonarqube vault backend frontend loki otel)
 
-# =============================================================================
-# HELPERS
-# =============================================================================
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
 pid_file()  { echo "$PID_DIR/$1.pid"; }
@@ -67,9 +60,6 @@ svc_exists_in_cluster() {
   kubectl get svc "${SVC_SVC[$name]}" -n "${SVC_NS[$name]}" &>/dev/null 2>&1
 }
 
-# =============================================================================
-# START
-# =============================================================================
 start_service() {
   local name="$1"
   local ns="${SVC_NS[$name]}"
@@ -123,9 +113,6 @@ cmd_start() {
   cmd_status
 }
 
-# =============================================================================
-# STOP
-# =============================================================================
 stop_service() {
   local name="$1"
   local pf="$(pid_file "$name")"
@@ -156,9 +143,6 @@ cmd_stop() {
   success "All port-forwards stopped"
 }
 
-# =============================================================================
-# STATUS
-# =============================================================================
 cmd_status() {
   echo -e "${BOLD}Port-Forward Status${NC}"
   echo ""
@@ -190,9 +174,6 @@ cmd_status() {
   print_credentials
 }
 
-# =============================================================================
-# RESTART
-# =============================================================================
 cmd_restart() {
   local targets=("$@")
   [[ ${#targets[@]} -eq 0 ]] && targets=("${ALL_SERVICES[@]}")
@@ -203,9 +184,6 @@ cmd_restart() {
   cmd_start "${targets[@]}"
 }
 
-# =============================================================================
-# LOGS
-# =============================================================================
 cmd_logs() {
   local name="${1:-}"
   [[ -z "$name" ]] && die "Usage: $0 logs <service>"
@@ -215,9 +193,6 @@ cmd_logs() {
   tail -f "$lf"
 }
 
-# =============================================================================
-# CREDENTIALS SUMMARY
-# =============================================================================
 print_credentials() {
   echo -e "  ${BOLD}Default credentials:${NC}"
   echo ""
@@ -235,9 +210,6 @@ print_credentials() {
   echo ""
 }
 
-# =============================================================================
-# USAGE
-# =============================================================================
 usage() {
   cat <<EOF
 
@@ -266,19 +238,16 @@ Services:
   otel          OTel Collector       :4317
 
 Examples:
-  $(basename "$0") start                  # start everything
-  $(basename "$0") start tekton argocd    # start specific services
-  $(basename "$0") stop                   # stop everything
-  $(basename "$0") restart grafana        # restart one service
-  $(basename "$0") status                 # show all statuses
-  $(basename "$0") logs sonarqube         # tail sonarqube pf logs
+  $(basename "$0") start
+  $(basename "$0") start tekton argocd
+  $(basename "$0") stop
+  $(basename "$0") restart grafana
+  $(basename "$0") status
+  $(basename "$0") logs sonarqube
 
 EOF
 }
 
-# =============================================================================
-# MAIN
-# =============================================================================
 COMMAND="${1:-help}"
 shift || true
 

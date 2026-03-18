@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SCRIPT_DATE="2026-03-16"
 
-
 TEKTON_PIPELINES_VERSION="v0.68.0"
 TEKTON_TRIGGERS_VERSION="v0.30.0"
 TEKTON_DASHBOARD_VERSION="v0.52.0"
@@ -19,15 +18,13 @@ MINIKUBE_MEMORY="8192"
 MINIKUBE_DISK="40g"
 MINIKUBE_K8S_VERSION="v1.32.3"
 
-
 CHART_PROMETHEUS="69.8.2"     
 CHART_LOKI="2.10.2"           
-CHART_OTEL="0.119.0"          # opentelemetry-collector
-CHART_SONARQUBE="10.8.0"      # sonarqube (Community Edition)
-CHART_KYVERNO="3.4.4"         # kyverno
-CHART_VAULT="0.30.0"          # vault (HashiCorp)
-CHART_ESO="0.14.1"            # external-secrets operator
-
+CHART_OTEL="0.119.0"
+CHART_SONARQUBE="10.8.0"
+CHART_KYVERNO="3.4.4"
+CHART_VAULT="0.30.0"
+CHART_ESO="0.14.1"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; MAGENTA='\033[0;35m'; CYAN='\033[0;36m'
@@ -41,8 +38,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 die()     { error "$*"; exit 1; }
 
-
-SKIP_MINIKUBE=false
+SKIP_MINIKUBE=true
 SKIP_TEKTON=false
 SKIP_SECURITY=false
 SKIP_ARGOCD=false
@@ -58,7 +54,8 @@ print_usage() {
   echo "Usage: $0 [OPTIONS]"
   echo ""
   echo "Options:"
-  echo "  --skip-minikube       Skip Minikube start/configure"
+  echo "  --minikube            Install and start Minikube (default: skipped — assumes existing cluster)"
+  echo "  --skip-minikube       Explicitly skip Minikube (default behaviour)"
   echo "  --skip-tekton         Skip Tekton (Pipelines, Triggers, Dashboard, tkn)"
   echo "  --skip-security       Skip security tools (Trivy, SonarQube, Kyverno, Cosign, Vault, ESO, Conftest)"
   echo "  --skip-argocd         Skip ArgoCD install"
@@ -77,6 +74,7 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-minikube)      SKIP_MINIKUBE=true ;;
+      --minikube)           SKIP_MINIKUBE=false ;;
       --skip-tekton)        SKIP_TEKTON=true ;;
       --skip-security)      SKIP_SECURITY=true ;;
       --skip-argocd)        SKIP_ARGOCD=true ;;
@@ -89,14 +87,11 @@ parse_args() {
   done
 }
 
-
-
 check_command() { command -v "$1" &>/dev/null; }
 
 record_installed() { INSTALLED+=("$1"); }
 record_skipped()   { SKIPPED+=("$1"); }
 record_failed()    { FAILED+=("$1"); }
-
 
 dry_run_gate() {
   if $DRY_RUN; then
@@ -116,7 +111,6 @@ install_apt_package() {
   sudo apt-get install -y "$pkg"
   record_installed "$pkg"
 }
-
 
 install_binary() {
   local name="$1"
@@ -175,18 +169,14 @@ wait_for_pods() {
 }
 
 pods_running() {
-  # pods_running <namespace> <label-selector>
-  # Returns 0 if at least one Running pod matches the selector
   kubectl get pods -n "$1" -l "$2" --no-headers 2>/dev/null \
     | grep -q "^[^ ]* \+[0-9]*/[0-9]* \+Running"
 }
-
 
 helm_install_or_upgrade() {
   local release="$1" chart="$2" ns="$3" version="$4"
   shift 4
 
-  # Extract --helm-timeout from args before passing the rest to helm
   local helm_timeout="5m0s"
   local extra_args=()
   while [[ $# -gt 0 ]]; do
@@ -231,10 +221,7 @@ create_namespace_if_absent() {
   kubectl create namespace "$ns"
 }
 
-# =============================================================================
-# ERROR TRAP
-# =============================================================================
-ARGOCD_PASSWORD=""   # populated in setup_argocd, used in print_summary
+ARGOCD_PASSWORD=""
 
 on_error() {
   local line="$1"
@@ -244,9 +231,6 @@ on_error() {
 }
 trap 'on_error $LINENO' ERR
 
-# =============================================================================
-# FINAL SUMMARY
-# =============================================================================
 print_summary() {
   echo -e "\n${BOLD}${MAGENTA}══ Installation Summary ══${NC}"
 
@@ -313,20 +297,17 @@ print_summary() {
   echo ""
 }
 
-# =============================================================================
-# PHASE 1: PREFLIGHT CHECKS
-# =============================================================================
 run_preflight() {
   section "Preflight Checks"
 
-  # OS check
   if [[ "$(uname -s)" != "Linux" ]]; then
     die "This script requires Linux. Detected: $(uname -s)"
   fi
   success "OS: Linux"
 
-  # sudo access
-  if sudo -n true 2>/dev/null; then
+  if $DRY_RUN; then
+    warn "sudo: check skipped in dry-run mode"
+  elif sudo -n true 2>/dev/null; then
     success "sudo: passwordless access available"
   elif sudo -v 2>/dev/null; then
     success "sudo: access available (may prompt for password during install)"
@@ -334,25 +315,21 @@ run_preflight() {
     die "sudo access is required to install system packages"
   fi
 
-  # Internet connectivity
   if curl -sf --max-time 10 https://github.com >/dev/null; then
     success "Internet: reachable"
   else
     die "Internet access is required. Cannot reach https://github.com"
   fi
 
-  # Docker daemon
   if ! docker info &>/dev/null; then
     die "Docker daemon is not running. Start it with: sudo systemctl start docker"
   fi
   success "Docker: daemon is running"
 }
 
-# =============================================================================
-# PHASE 2: SYSTEM UTILITIES
-# =============================================================================
 install_system_utilities() {
   section "System Utilities"
+  dry_run_gate "apt-get update" || { info "DRY RUN: skipping apt-get update"; return 0; }
   sudo apt-get update -qq
   local pkgs=(curl wget git jq apt-transport-https ca-certificates gnupg lsb-release)
   for pkg in "${pkgs[@]}"; do
@@ -360,13 +337,9 @@ install_system_utilities() {
   done
 }
 
-# =============================================================================
-# PHASE 3: DOCKER
-# =============================================================================
 setup_docker() {
   section "Docker"
 
-  # Install Docker if missing
   if check_command docker; then
     local ver
     ver=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')
@@ -380,7 +353,6 @@ setup_docker() {
     fi
   fi
 
-  # Check docker group membership (required for minikube --driver=docker)
   if ! groups "$USER" | grep -qw docker; then
     warn "User '$USER' is not in the docker group."
     dry_run_gate "add $USER to docker group" || return 0
@@ -389,7 +361,6 @@ setup_docker() {
   fi
   success "Docker group: $USER is a member"
 
-  # Install Docker Compose plugin if missing
   if docker compose version &>/dev/null 2>&1; then
     local compose_ver
     compose_ver=$(docker compose version --short 2>/dev/null || echo "unknown")
@@ -406,13 +377,9 @@ setup_docker() {
   fi
 }
 
-# =============================================================================
-# PHASE 4: MINIKUBE
-# =============================================================================
 setup_minikube() {
   section "Minikube"
 
-  # Install minikube binary if missing
   if check_command minikube; then
     local ver
     ver=$(minikube version --short 2>/dev/null | tr -d 'v')
@@ -430,7 +397,6 @@ setup_minikube() {
     fi
   fi
 
-  # Start minikube if not already running
   local mk_status
   mk_status=$(minikube status --format='{{.Host}}' 2>/dev/null || echo "NotRunning")
 
@@ -449,20 +415,15 @@ setup_minikube() {
     success "minikube started"
   fi
 
-  # Ensure required addons are enabled (idempotent)
   for addon in ingress metrics-server storage-provisioner; do
     dry_run_gate "enable minikube addon: $addon" || continue
     minikube addons enable "$addon" 2>/dev/null || true
   done
   success "minikube addons: ingress, metrics-server, storage-provisioner enabled"
 
-  # Wait for coredns to be ready
   wait_for_deployment kube-system coredns 120 || warn "coredns took longer than expected"
 }
 
-# =============================================================================
-# PHASE 5: KUBECTL
-# =============================================================================
 setup_kubectl() {
   section "kubectl"
 
@@ -482,17 +443,13 @@ setup_kubectl() {
     record_installed "kubectl"
   fi
 
-  # Verify connection to cluster
   if kubectl cluster-info --request-timeout=10s &>/dev/null; then
     success "kubectl: connected to cluster"
   else
-    warn "kubectl cannot reach cluster — minikube may still be starting"
+    warn "kubectl cannot reach cluster — ensure your kubeconfig is set and the cluster is running"
   fi
 }
 
-# =============================================================================
-# PHASE 6: HELM + REPOS
-# =============================================================================
 setup_helm() {
   section "Helm"
 
@@ -511,7 +468,6 @@ setup_helm() {
   dry_run_gate "add/update Helm repositories" || return 0
 
   info "Adding Helm repositories..."
-  # Add repos — 2>/dev/null suppresses "already exists" warnings; || true prevents exit on duplicate
   declare -A HELM_REPOS=(
     ["prometheus-community"]="https://prometheus-community.github.io/helm-charts"
     ["grafana"]="https://grafana.github.io/helm-charts"
@@ -532,9 +488,6 @@ setup_helm() {
   success "Helm repos configured and updated"
 }
 
-# =============================================================================
-# PHASE 7: KUBERNETES NAMESPACES
-# =============================================================================
 create_namespaces() {
   section "Kubernetes Namespaces"
   dry_run_gate "create all required namespaces" || return 0
@@ -559,13 +512,9 @@ create_namespaces() {
   success "All namespaces created/verified"
 }
 
-# =============================================================================
-# PHASE 9: TEKTON CI
-# =============================================================================
 setup_tekton() {
   section "Tekton Pipelines"
 
-  # ── Tekton Pipelines ──────────────────────────────────────────────────────
   if kubectl get deployment tekton-pipelines-controller -n tekton-pipelines &>/dev/null; then
     info "Tekton Pipelines already installed, skipping"
     record_skipped "tekton-pipelines"
@@ -581,9 +530,6 @@ setup_tekton() {
     fi
   fi
 
-  # ── Tekton Triggers ───────────────────────────────────────────────────────
-  # NOTE: Tekton Triggers deploys into tekton-pipelines namespace, NOT a
-  # separate tekton-triggers namespace (that namespace is unused by the release).
   if kubectl get deployment tekton-triggers-controller -n tekton-pipelines &>/dev/null; then
     info "Tekton Triggers already installed, skipping"
     record_skipped "tekton-triggers"
@@ -603,8 +549,6 @@ setup_tekton() {
     fi
   fi
 
-  # ── Tekton Dashboard ──────────────────────────────────────────────────────
-  # NOTE: Tekton Dashboard deploys into tekton-pipelines namespace, not tekton-dashboard.
   if kubectl get deployment tekton-dashboard -n tekton-pipelines &>/dev/null; then
     info "Tekton Dashboard already installed, skipping"
     record_skipped "tekton-dashboard"
@@ -619,17 +563,12 @@ setup_tekton() {
     fi
   fi
 
-  # ── tkn CLI ───────────────────────────────────────────────────────────────
-  local tkn_ver="${TKN_CLI_VERSION#v}"  # strip leading v for filename
+  local tkn_ver="${TKN_CLI_VERSION#v}"
   local tkn_url="https://github.com/tektoncd/cli/releases/download/${TKN_CLI_VERSION}/tkn_${tkn_ver}_Linux_x86_64.tar.gz"
   install_binary tkn "$tkn_url" /usr/local/bin true tkn
 }
 
-# =============================================================================
-# PHASE 10: SECURITY TOOLS
-# =============================================================================
 setup_security() {
-  # ── Trivy ─────────────────────────────────────────────────────────────────
   section "Trivy"
   if check_command trivy; then
     info "trivy already installed: $(trivy --version 2>/dev/null | head -1)"
@@ -649,10 +588,7 @@ setup_security() {
     fi
   fi
 
-  # ── SonarQube ─────────────────────────────────────────────────────────────
   section "SonarQube"
-  # SonarQube is slow to start (JVM warm-up + embedded PostgreSQL).
-  # --helm-timeout 20m0s prevents the context deadline exceeded error on first install.
   if ! $DRY_RUN && pods_running sonarqube "app=sonarqube"; then
     record_skipped "sonarqube"
   else
@@ -669,9 +605,7 @@ setup_security() {
     fi
   fi
 
-  # ── Kyverno ───────────────────────────────────────────────────────────────
   section "Kyverno"
-  # Install with failurePolicy=Ignore (audit mode) so webhook doesn't block other installs
   if ! $DRY_RUN && pods_running kyverno "app.kubernetes.io/name=kyverno"; then
     record_skipped "kyverno"
   else
@@ -686,20 +620,16 @@ setup_security() {
     fi
   fi
 
-  # ── Cosign ────────────────────────────────────────────────────────────────
   section "Cosign"
   if check_command cosign; then
     info "cosign already installed: $(cosign version 2>/dev/null | head -1 || echo 'installed')"
     record_skipped "cosign"
   else
-    # Install latest cosign binary from sigstore
     local cosign_url="https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
     install_binary cosign "$cosign_url"
   fi
 
-  # ── Vault ─────────────────────────────────────────────────────────────────
   section "Vault"
-  # CLI check (already installed on this machine)
   if check_command vault; then
     info "vault CLI already installed: $(vault version 2>/dev/null)"
     record_skipped "vault-cli"
@@ -707,7 +637,6 @@ setup_security() {
     warn "vault CLI not found — install from https://developer.hashicorp.com/vault/downloads"
   fi
 
-  # Deploy Vault server in cluster (dev mode for local use)
   if ! $DRY_RUN && pods_running vault "app.kubernetes.io/name=vault"; then
     record_skipped "vault"
   else
@@ -723,7 +652,6 @@ setup_security() {
     fi
   fi
 
-  # ── External Secrets Operator ─────────────────────────────────────────────
   section "External Secrets Operator (ESO)"
   if ! $DRY_RUN && pods_running external-secrets "app.kubernetes.io/name=external-secrets"; then
     record_skipped "external-secrets"
@@ -737,15 +665,11 @@ setup_security() {
     fi
   fi
 
-  # ── Conftest ──────────────────────────────────────────────────────────────
   section "Conftest"
   local conftest_url="https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
   install_binary conftest "$conftest_url" /usr/local/bin true conftest
 }
 
-# =============================================================================
-# PHASE 11: ARGOCD
-# =============================================================================
 setup_argocd() {
   section "ArgoCD"
 
@@ -764,11 +688,9 @@ setup_argocd() {
         || warn "argocd-server slow — check: kubectl get pods -n argocd"
       wait_for_deployment argocd argocd-repo-server 180 \
         || warn "argocd-repo-server slow"
-      # app-controller is a StatefulSet, not a Deployment
       wait_for_statefulset argocd argocd-application-controller 180 \
         || warn "argocd-application-controller slow"
 
-      # Retrieve initial admin password (secret is created async by argocd-server)
       local attempts=0
       while [[ $attempts -lt 30 ]]; do
         ARGOCD_PASSWORD=$(
@@ -785,20 +707,12 @@ setup_argocd() {
     fi
   fi
 
-  # ── argocd CLI ────────────────────────────────────────────────────────────
   local argocd_cli_url="https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
   install_binary argocd "$argocd_cli_url"
 }
 
-# =============================================================================
-# PHASE 12: OBSERVABILITY
-# =============================================================================
 setup_observability() {
-  # ── Prometheus + Grafana (kube-prometheus-stack) ──────────────────────────
   section "Prometheus + Grafana"
-  # Grafana admin password is set by vault-credentials.sh via grafana-admin-secret.
-  # Helm reads it from the existing secret if present; otherwise defaults to 'admin'
-  # until vault-credentials.sh is run.
   if ! $DRY_RUN && pods_running monitoring "app.kubernetes.io/name=grafana"; then
     record_skipped "prometheus"
   else
@@ -813,15 +727,12 @@ setup_observability() {
     if ! $DRY_RUN; then
       wait_for_deployment monitoring prometheus-grafana 180 \
         || warn "Grafana slow — check: kubectl get pods -n monitoring"
-      # Prometheus itself is a StatefulSet
       wait_for_statefulset monitoring prometheus-prometheus-kube-prometheus-prometheus 180 \
         || warn "Prometheus StatefulSet slow"
     fi
   fi
 
-  # ── Loki + Promtail ───────────────────────────────────────────────────────
   section "Loki + Promtail"
-  # Deploy into monitoring namespace so Grafana can reach Loki by service name
   if ! $DRY_RUN && pods_running monitoring "app=loki"; then
     record_skipped "loki"
   else
@@ -836,10 +747,7 @@ setup_observability() {
     fi
   fi
 
-  # ── OpenTelemetry Collector ───────────────────────────────────────────────
   section "OpenTelemetry Collector"
-  # image.repository is required since chart v0.90 — must be explicitly set.
-  # otel/opentelemetry-collector-k8s is the recommended K8s-optimised image.
   if ! $DRY_RUN && pods_running otel "app.kubernetes.io/name=opentelemetry-collector"; then
     record_skipped "otel-collector"
   else
@@ -854,9 +762,6 @@ setup_observability() {
   fi
 }
 
-# =============================================================================
-# MAIN
-# =============================================================================
 main() {
   parse_args "$@"
 
@@ -873,11 +778,7 @@ main() {
   fi
 
   setup_helm
-
-  # Namespaces require a running cluster
-  if ! $SKIP_MINIKUBE; then
-    create_namespaces
-  fi
+  create_namespaces
 
   if $SKIP_TEKTON; then
     section "Tekton CI"

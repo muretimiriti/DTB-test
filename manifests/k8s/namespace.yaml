@@ -1,7 +1,4 @@
-# =============================================================================
-# namespace.yaml — Banking application namespace
-# Apply first: kubectl apply -f manifests/k8s/namespace.yaml
-# =============================================================================
+
 apiVersion: v1
 kind: Namespace
 metadata:

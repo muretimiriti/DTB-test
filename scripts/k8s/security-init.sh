@@ -5,7 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 MANIFESTS="$PROJECT_ROOT/manifests"
 
-
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; MAGENTA='\033[0;35m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; NC='\033[0m'
@@ -23,12 +22,10 @@ step() {
   echo -e "\n${BOLD}${BLUE}[Step $n]${NC} $*"
 }
 
-# Security posture tracking
 PASS=(); WARN=(); FAIL=()
 record_pass() { PASS+=("$1"); }
 record_warn() { WARN+=("$1"); }
 record_fail() { FAIL+=("$1"); }
-
 
 SKIP_TRIVY=false
 SKIP_KYVERNO=false
@@ -119,16 +116,13 @@ apply_manifest() {
   kubectl apply -f "$file"
 }
 
-
 preflight() {
   section "Preflight Checks"
 
-  
   $DRY_RUN || kubectl cluster-info --request-timeout=10s &>/dev/null \
     || die "Cannot reach cluster. Start minikube: minikube start"
   success "Cluster: reachable"
 
-  
   local namespaces=(banking kyverno vault external-secrets monitoring)
   for ns in "${namespaces[@]}"; do
     if ! kubectl get namespace "$ns" &>/dev/null; then
@@ -149,7 +143,6 @@ preflight() {
   done
 }
 
-
 setup_trivy() {
   section "Trivy — Container Vulnerability Scanner"
 
@@ -163,12 +156,10 @@ setup_trivy() {
   trivy_ver=$(trivy --version 2>/dev/null | head -1)
   success "Trivy installed: $trivy_ver"
 
-  
   info "Updating Trivy vulnerability database..."
   $DRY_RUN || trivy image --download-db-only --quiet
   success "Trivy DB updated"
 
-  
   info "Running test scan (alpine:3.19)..."
   if $DRY_RUN; then
     info "DRY RUN: trivy image alpine:3.19"
@@ -180,7 +171,6 @@ setup_trivy() {
     success "Trivy scan test: PASSED"
   fi
 
-  
   if [[ -n "${DOCKER_USERNAME:-}" ]]; then
     for svc in banking-backend banking-frontend; do
       local img="${DOCKER_USERNAME}/${svc}:latest"
@@ -199,11 +189,9 @@ setup_trivy() {
   record_pass "trivy"
 }
 
-
 setup_kyverno() {
   section "Kyverno — Admission Policy Enforcement"
 
-  
   if ! pod_running kyverno "app.kubernetes.io/component=admission-controller" && \
      ! pod_running kyverno "app.kubernetes.io/name=kyverno"; then
     warn "Kyverno pods not running. Install via prerequisites.sh then re-run."
@@ -212,25 +200,21 @@ setup_kyverno() {
   fi
   success "Kyverno: Running"
 
-  
   info "Applying security policies..."
   apply_manifest "$MANIFESTS/security/kyverno-policies.yaml"
   success "Kyverno policies applied"
 
   $DRY_RUN && { record_pass "kyverno"; return 0; }
 
-  
   local policy_count
   policy_count=$(kubectl get clusterpolicies --no-headers 2>/dev/null | wc -l | tr -d ' ')
   success "$policy_count ClusterPolicies active"
 
-  
   echo ""
   kubectl get clusterpolicies -o custom-columns="NAME:.metadata.name,MODE:.spec.validationFailureAction,BACKGROUND:.spec.background" \
     2>/dev/null || true
   echo ""
 
-  
   info "Checking for policy violations in banking namespace..."
   local violations
   violations=$(kubectl get policyreport -n banking --no-headers 2>/dev/null \
@@ -245,7 +229,6 @@ setup_kyverno() {
   fi
 }
 
-
 setup_cosign() {
   section "Cosign — Image Signing & Verification"
 
@@ -259,7 +242,6 @@ setup_cosign() {
   cosign_ver=$(cosign version 2>/dev/null | grep "GitVersion" | awk '{print $2}' || echo "installed")
   success "Cosign: $cosign_ver"
 
-  
   if secret_exists cosign-key tekton-pipelines; then
     info "cosign-key secret already exists in tekton-pipelines"
   else
@@ -272,7 +254,6 @@ setup_cosign() {
     fi
   fi
 
-  
   if ! $DRY_RUN && secret_exists cosign-key tekton-pipelines; then
     local pubkey
     pubkey=$(kubectl get secret cosign-key -n tekton-pipelines \
@@ -288,13 +269,11 @@ setup_cosign() {
       echo "$pubkey"
       echo ""
 
-      
       kubectl create configmap cosign-pubkey \
         --from-literal=cosign.pub="$pubkey" \
         -n banking --dry-run=client -o yaml | kubectl apply -f -
       success "cosign-pubkey ConfigMap created in banking namespace"
 
-      
       if ! secret_exists cosign-key banking; then
         kubectl get secret cosign-key -n tekton-pipelines -o json \
           | python3 -c "
@@ -311,7 +290,6 @@ print(json.dumps(s))
         info "cosign-key already exists in banking namespace"
       fi
 
-     
       info "Updating Kyverno require-signed-images policy with cosign public key..."
       local policy_file="$MANIFESTS/security/kyverno-policies.yaml"
       if python3 - "$policy_file" "$pubkey" <<'PYEOF'
@@ -323,11 +301,9 @@ pubkey = sys.argv[2]
 with open(policy_file) as f:
     content = f.read()
 
-# Indent lines to match the YAML block scalar indentation (22 spaces)
 indent = "                      "
 indented_key = "\n".join(indent + line for line in pubkey.strip().split("\n"))
 
-# Replace placeholder block (the comment + placeholder lines)
 old_block = (
     indent + "# Paste your cosign public key here after running:\n"
     + indent + "# cosign generate-key-pair k8s://tekton-pipelines/cosign-key\n"
@@ -348,7 +324,6 @@ if "REPLACE_WITH_COSIGN_PUBLIC_KEY" in content:
         print("WARN: kubectl apply failed:", result.stderr.decode(), file=sys.stderr)
         sys.exit(1)
 else:
-    # Key already substituted — just re-apply as-is
     import subprocess
     subprocess.run(["kubectl", "apply", "-f", policy_file], check=True)
     print("OK: Kyverno policy re-applied (key already present)")
@@ -364,7 +339,6 @@ PYEOF
     fi
   fi
 
-  
   info "Testing Cosign verify with a known signed image..."
   if $DRY_RUN; then
     info "DRY RUN: cosign verify --certificate-identity-regexp='.*' --certificate-oidc-issuer-regexp='.*' cgr.dev/chainguard/static"
@@ -380,11 +354,9 @@ PYEOF
   record_pass "cosign"
 }
 
-
 setup_vault() {
   section "Vault — Secrets Management"
 
-  
   if ! pod_running vault "app.kubernetes.io/name=vault"; then
     warn "Vault pod not running. Install via prerequisites.sh then re-run."
     record_warn "vault"
@@ -394,11 +366,9 @@ setup_vault() {
 
   prompt_value VAULT_ROOT_TOKEN "Vault root token" "root"
 
-  
   local VAULT_POD="vault-0"
   local VAULT_NS="vault"
 
-  
   local vault_status
   if $DRY_RUN; then
     vault_status="active"
@@ -409,7 +379,6 @@ setup_vault() {
   fi
   info "Vault initialized: $vault_status"
 
- 
   info "Enabling KV v2 secrets engine at path: secret/"
   $DRY_RUN || kubectl exec -n "$VAULT_NS" "$VAULT_POD" -- \
     sh -c "VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault secrets enable -path=secret kv-v2" \
@@ -418,7 +387,6 @@ setup_vault() {
 
   info "Writing banking app secrets to Vault..."
 
- 
   local jwt_secret="${JWT_SECRET:-$(openssl rand -hex 64 2>/dev/null || echo "CHANGE_ME_64_CHAR_RANDOM_STRING")}"
   local mongo_app_pass="${MONGO_APP_PASSWORD:-CHANGE_ME_APP_PASSWORD}"
 
@@ -451,7 +419,6 @@ path \"secret/data/banking/*\" {
 POLICY"
   success "Vault policy: eso-banking-policy created"
 
-  
   info "Creating Vault token for ESO..."
   if $DRY_RUN; then
     info "DRY RUN: vault token create -policy=eso-banking-policy"
@@ -493,11 +460,9 @@ POLICY"
   record_pass "vault"
 }
 
-
 setup_eso() {
   section "External Secrets Operator — Vault → K8s Secrets Sync"
 
-  
   if ! pod_running external-secrets "app.kubernetes.io/name=external-secrets"; then
     warn "ESO pods not running. Install via prerequisites.sh then re-run."
     record_warn "eso"
@@ -529,7 +494,6 @@ spec:
 EOF
     success "ClusterSecretStore 'vault-backend' created (cluster-scoped)"
 
-    
     kubectl apply -f - <<'EOF'
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
@@ -579,7 +543,6 @@ spec:
 EOF
     success "ExternalSecret 'banking-backend-secrets' created"
 
-    
     kubectl apply -f - <<'EOF'
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
@@ -617,7 +580,6 @@ spec:
 EOF
     success "ExternalSecret 'banking-mongodb-secrets' created"
 
-    
     kubectl apply -f - <<'EOF'
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -653,7 +615,6 @@ EOF
     success "ESO RBAC: Role + RoleBinding created so ESO can read vault-eso-token"
   }
 
-  # Check sync status
   $DRY_RUN && { record_pass "eso"; return 0; }
   sleep 10
   local es_status
@@ -673,7 +634,6 @@ EOF
   fi
 }
 
-
 setup_conftest() {
   section "Conftest — OPA Policy Validation"
 
@@ -684,14 +644,12 @@ setup_conftest() {
   fi
   success "Conftest: $(conftest --version 2>/dev/null | head -1)"
 
-  
   local policy_dir="$PROJECT_ROOT/policies"
   if [[ ! -f "$policy_dir/k8s-security.rego" ]]; then
     die "OPA policy file not found: $policy_dir/k8s-security.rego — ensure it is committed to the repo"
   fi
   success "OPA policies found: $policy_dir/k8s-security.rego"
 
-  
   if $DRY_RUN; then
     info "DRY RUN: conftest test manifests/k8s/backend/deployment.yaml manifests/k8s/frontend/deployment.yaml --policy policies/"
     record_pass "conftest"
@@ -701,7 +659,6 @@ setup_conftest() {
   info "Running OPA policy checks against k8s manifests..."
   local conftest_exit=0
 
-  
   local manifests=(
     "$MANIFESTS/k8s/backend/deployment.yaml"
     "$MANIFESTS/k8s/frontend/deployment.yaml"
@@ -726,7 +683,6 @@ setup_conftest() {
   fi
 }
 
-
 setup_network_policies() {
   section "Network Policies — Zero-Trust Namespace Isolation"
 
@@ -744,7 +700,6 @@ setup_network_policies() {
 
   record_pass "network-policy"
 }
-
 
 run_health_checks() {
   section "Security Components Health Check"
@@ -776,7 +731,6 @@ run_health_checks() {
   $all_ok && success "All security pods healthy" \
     || warn "Some pods not ready — they may still be starting up"
 }
-
 
 print_security_report() {
   section "Security Posture Report"
@@ -815,7 +769,6 @@ print_security_report() {
     success "Security initialisation complete"
   fi
 }
-
 
 main() {
   parse_args "$@"

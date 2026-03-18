@@ -1,16 +1,5 @@
 package main
 
-# =============================================================================
-# k8s-security.rego — OPA policies for Kubernetes manifest validation
-#
-# Run with conftest before applying manifests:
-#   conftest test manifests/k8s/backend/deployment.yaml --policy policies/
-#   conftest test manifests/k8s/ --policy policies/ --all-namespaces
-#
-# Also executed in the Tekton lint-sast task on every pipeline run.
-# =============================================================================
-
-# ── DENY: containers without CPU limits ──────────────────────────────────────
 deny[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -21,7 +10,6 @@ deny[msg] {
   )
 }
 
-# ── DENY: containers without memory limits ───────────────────────────────────
 deny[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -32,7 +20,6 @@ deny[msg] {
   )
 }
 
-# ── DENY: privileged containers ──────────────────────────────────────────────
 deny[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -43,7 +30,6 @@ deny[msg] {
   )
 }
 
-# ── DENY: allowPrivilegeEscalation not explicitly false ──────────────────────
 deny[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -54,7 +40,6 @@ deny[msg] {
   )
 }
 
-# ── DENY: missing namespace on Deployment/StatefulSet/Service ────────────────
 deny[msg] {
   input.kind == "Deployment"
   not input.metadata.namespace
@@ -73,7 +58,6 @@ deny[msg] {
   )
 }
 
-# ── DENY: Service without selector (headless allowed — ClusterIP: None) ──────
 deny[msg] {
   input.kind == "Service"
   input.spec.type != "ExternalName"
@@ -85,7 +69,6 @@ deny[msg] {
   )
 }
 
-# ── WARN: missing readinessProbe ─────────────────────────────────────────────
 warn[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -96,7 +79,6 @@ warn[msg] {
   )
 }
 
-# ── WARN: missing livenessProbe ──────────────────────────────────────────────
 warn[msg] {
   input.kind == "Deployment"
   container := input.spec.template.spec.containers[_]
@@ -107,7 +89,6 @@ warn[msg] {
   )
 }
 
-# ── WARN: single replica (no HA) ─────────────────────────────────────────────
 warn[msg] {
   input.kind == "Deployment"
   input.spec.replicas == 1
@@ -117,7 +98,6 @@ warn[msg] {
   )
 }
 
-# ── WARN: missing app.kubernetes.io/part-of label ────────────────────────────
 warn[msg] {
   input.kind == "Deployment"
   not input.metadata.labels["app.kubernetes.io/part-of"]

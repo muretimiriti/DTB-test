@@ -1,10 +1,3 @@
-# =============================================================================
-# triggers/trigger-template.yaml — TriggerTemplate
-#
-# Defines the PipelineRun to create when an event is received.
-# Receives parameters from the TriggerBinding and passes them to
-# the banking-ci-pipeline.
-# =============================================================================
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
 metadata:
@@ -29,7 +22,6 @@ spec:
     - apiVersion: tekton.dev/v1
       kind: PipelineRun
       metadata:
-        # Unique name: pipeline-<short-sha>-<timestamp>
         generateName: banking-ci-run-
         namespace: tekton-pipelines
         labels:
@@ -42,7 +34,6 @@ spec:
           name: banking-ci-pipeline
         serviceAccountName: tekton-pipeline-sa
 
-        # ── Parameter bindings ──────────────────────────────────────────────
         params:
           - name: git-url
             value: $(tt.params.git-url)
@@ -61,7 +52,6 @@ spec:
                 name: sonarqube-token
                 key: SONAR_TOKEN
 
-        # ── Workspace bindings ──────────────────────────────────────────────
         workspaces:
           - name: pipeline-workspace
             persistentVolumeClaim:
@@ -70,7 +60,6 @@ spec:
             secret:
               secretName: regcred
 
-        # ── Timeout ────────────────────────────────────────────────────────
         timeouts:
           pipeline: "1h0m0s"
           tasks: "45m0s"

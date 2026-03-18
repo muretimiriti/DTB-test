@@ -1,9 +1,4 @@
-# =============================================================================
-# tasks/smoke-test.yaml — Stage 9: Smoke Tests Against Staging
-#
-# Validates the deployed application is functioning correctly by hitting
-# key API endpoints and the frontend health endpoint.
-# =============================================================================
+
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -43,7 +38,6 @@ spec:
     - name: run-smoke-tests
       image: alpine/curl:latest
       script: |
-        #!/bin/sh
         set -e
         RETRIES=$(params.max-retries)
         INTERVAL=$(params.retry-interval)
@@ -73,13 +67,9 @@ spec:
           return 1
         }
 
-        # Backend health
         check "Backend Health"   "$(params.backend-url)/health"          200
-        # Backend API root (should return 404 or 200, not 500)
-        check "Backend API"      "$(params.backend-url)/api/accounts"    401  # requires auth
-        # Frontend health
+        check "Backend API"      "$(params.backend-url)/api/accounts"    401
         check "Frontend Health"  "$(params.frontend-url)/health"         200
-        # Frontend SPA (root)
         check "Frontend Root"    "$(params.frontend-url)/"               200
 
         echo ""

@@ -1,10 +1,3 @@
-# =============================================================================
-# tasks/build-push.yaml — Stage 5 & 7: Docker Build + Push to Docker Hub
-#
-# Uses Kaniko to build images inside the cluster (no Docker daemon required).
-# Builds both banking-backend and banking-frontend, tags with git commit SHA,
-# and pushes to Docker Hub.
-# =============================================================================
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -43,7 +36,6 @@ spec:
       description: Full frontend image reference with digest
 
   steps:
-    # ── Build + push backend ────────────────────────────────────────────────
     - name: build-push-backend
       image: gcr.io/kaniko-project/executor:latest
       args:
@@ -61,7 +53,6 @@ spec:
         - name: docker-config
           mountPath: /kaniko/.docker/
 
-    # ── Build + push frontend ───────────────────────────────────────────────
     - name: build-push-frontend
       image: gcr.io/kaniko-project/executor:latest
       args:

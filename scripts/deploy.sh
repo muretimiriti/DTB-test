@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# deploy.sh - Deploy or update the banking stack using Docker Compose
-# Usage: ./scripts/deploy.sh [up|down|restart|logs|status]
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +15,6 @@ cd "$PROJECT_ROOT"
 
 [[ -f ".env" ]] || die ".env not found. Run ./scripts/setup.sh first"
 
-# Determine compose command
 if command -v docker-compose &>/dev/null; then
   COMPOSE="docker-compose"
 elif docker compose version &>/dev/null 2>&1; then

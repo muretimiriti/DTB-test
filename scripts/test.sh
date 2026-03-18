@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# test.sh - Run unit and integration tests for all services
-# Usage: ./scripts/test.sh [unit|integration|coverage|all]
-# =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +18,6 @@ run_backend_tests() {
   info "Running backend ${suite} tests..."
   cd "$PROJECT_ROOT/backend"
 
-  # Ensure .env for test exists
   if [[ ! -f ".env" ]]; then
     cp .env.example .env 2>/dev/null || true
   fi

@@ -1,10 +1,4 @@
-# =============================================================================
-# tasks/sonarqube-scan.yaml — Stage 1 (extended): SonarQube Code Analysis
-#
-# Runs sonar-scanner against backend and frontend source code.
-# Reports code smells, bugs, security hotspots, and duplications to the
-# SonarQube instance deployed in the sonarqube namespace.
-# =============================================================================
+
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -33,6 +27,7 @@ spec:
       description: SonarQube project key
     - name: sonar-token
       type: string
+      default: ""
       description: SonarQube authentication token (injected from secret)
     - name: git-branch
       type: string
@@ -40,7 +35,7 @@ spec:
       description: Source branch name for SonarQube analysis
 
   steps:
-    # ── Install coverage reports then run sonar-scanner ────────────────────
+   
     - name: run-sonar-scanner
       image: sonarsource/sonar-scanner-cli:latest
       workingDir: $(workspaces.source.path)
@@ -50,7 +45,6 @@ spec:
         - name: SONAR_TOKEN
           value: $(params.sonar-token)
       script: |
-        #!/bin/sh
         set -e
         echo "=== Running SonarQube analysis ==="
         sonar-scanner \
@@ -64,14 +58,12 @@ spec:
           -Dsonar.login=$(params.sonar-token)
         echo "=== SonarQube analysis submitted ==="
 
-    # ── Poll Quality Gate result ────────────────────────────────────────────
     - name: check-quality-gate
       image: alpine/curl:latest
       script: |
-        #!/bin/sh
         set -e
         echo "=== Waiting for Quality Gate result ==="
-        sleep 10   # allow SonarQube to process
+        sleep 10
 
         STATUS=$(curl -sf \
           -u "$(params.sonar-token):" \

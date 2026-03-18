@@ -1,13 +1,10 @@
-#!/usr/bin/env bash
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 MANIFESTS="${ROOT_DIR}/manifests"
 
-# =============================================================================
-# ENV-VAR DEFAULTS — all behaviour can be overridden without editing this file
-# =============================================================================
 NAMESPACE="${TEKTON_NAMESPACE:-tekton-pipelines}"
 BANKING_NS="${BANKING_NAMESPACE:-banking}"
 INSTALL_TEKTON="${INSTALL_TEKTON:-true}"
@@ -29,18 +26,12 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; MAGENTA='\033[0;35m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; NC='\033[0m'
 
-# =============================================================================
-# LOGGING
-# =============================================================================
 log()     { echo -e "${BLUE}[tekton]${NC} $*"; }
 success() { echo -e "${GREEN}[tekton]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[tekton]${NC} $*" >&2; }
 section() { echo -e "\n${BOLD}${MAGENTA}══ $* ══${NC}"; }
 die()     { echo -e "${RED}[tekton] ERROR:${NC} $*" >&2; exit 1; }
 
-# =============================================================================
-# USAGE
-# =============================================================================
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/k8s/tekton-init.sh [options]
@@ -75,9 +66,6 @@ Environment:
 USAGE
 }
 
-# =============================================================================
-# ARGUMENT PARSING
-# =============================================================================
 DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
@@ -96,9 +84,6 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-# =============================================================================
-# UTILITIES
-# =============================================================================
 k()           { kubectl -n "$NAMESPACE" "$@"; }
 kube()        { $DRY_RUN && { log "DRY RUN: kubectl $*"; return 0; }; kubectl "$@"; }
 kn()          { $DRY_RUN && { log "DRY RUN: kubectl -n $NAMESPACE $*"; return 0; }; k "$@"; }
@@ -128,31 +113,72 @@ apply_manifest_cluster() {
 
 secret_exists() { kubectl get secret "$1" -n "$2" &>/dev/null; }
 
-# =============================================================================
-# PREFLIGHT — verify cluster and tools
-# =============================================================================
+patch_kyverno_webhooks() {
+  local policy="$1"
+  local kinds=(validatingwebhookconfiguration mutatingwebhookconfiguration)
+  local patched=0
+  log "Patching Kyverno webhooks → failurePolicy: ${policy}"
+  for kind in "${kinds[@]}"; do
+    while IFS= read -r wc; do
+      [[ -z "$wc" ]] && continue
+      local count
+      count=$(kubectl get "$wc" -o jsonpath='{range .webhooks[*]}{.name}{"\n"}{end}' 2>/dev/null | wc -l || echo 0)
+      local i=0
+      while (( i < count )); do
+        kubectl patch "$wc" --type=json \
+          -p="[{\"op\":\"replace\",\"path\":\"/webhooks/${i}/failurePolicy\",\"value\":\"${policy}\"}]" \
+          &>/dev/null || true
+        i=$(( i + 1 ))
+      done
+      patched=$(( patched + 1 ))
+    done < <(kubectl get "$kind" -o name 2>/dev/null | grep kyverno || true)
+  done
+  if (( patched > 0 )); then
+    success "Kyverno webhooks (${patched} configs): failurePolicy set to ${policy}"
+  fi
+}
+
+kyverno_pods_running() {
+  kubectl get pods -n kyverno -l app.kubernetes.io/name=kyverno \
+    --no-headers 2>/dev/null | grep -qc Running
+}
+
+wait_for_api_server() {
+  local attempts=0 max=24 interval=5
+  log "Waiting for API server at 192.168.49.2:8443..."
+  until kubectl cluster-info --request-timeout=5s &>/dev/null; do
+    attempts=$(( attempts + 1 ))
+    if (( attempts >= max )); then
+      die "API server not reachable after $(( max * interval ))s — run: minikube status"
+    fi
+    warn "API server not ready (attempt $attempts/$max) — retrying in ${interval}s"
+    sleep "$interval"
+  done
+  success "API server: reachable"
+}
+
 preflight() {
   section "Preflight"
 
   command -v kubectl &>/dev/null || die "kubectl not found on PATH"
   kubectl version --client &>/dev/null || die "kubectl is not usable"
-  $DRY_RUN || kubectl cluster-info &>/dev/null \
-    || die "Cannot reach cluster — ensure minikube is running: minikube start"
 
-  # Start minikube if not running
-  local mk_status
-  mk_status=$(minikube status --format='{{.Host}}' 2>/dev/null || echo "NotRunning")
-  if [[ "$mk_status" != "Running" ]] && ! $DRY_RUN; then
-    warn "minikube not running — starting with recommended settings..."
-    minikube start \
-      --driver=docker \
-      --cpus=4 \
-      --memory=8192 \
-      --kubernetes-version=v1.32.3 \
-      --addons=ingress,metrics-server,storage-provisioner
-    success "minikube started"
-  else
-    success "cluster: reachable"
+  if ! $DRY_RUN; then
+    local mk_status
+    mk_status=$(minikube status --format='{{.Host}}' 2>/dev/null || echo "NotRunning")
+
+    if [[ "$mk_status" != "Running" ]]; then
+      warn "minikube not running (status: $mk_status) — starting..."
+      minikube start \
+        --driver=docker \
+        --cpus=4 \
+        --memory=8192 \
+        --kubernetes-version=v1.32.3 \
+        --addons=ingress,metrics-server,storage-provisioner
+      success "minikube started — waiting for API server to become ready"
+    fi
+
+    wait_for_api_server
   fi
 
   for tool in helm cosign tkn; do
@@ -162,9 +188,6 @@ preflight() {
   done
 }
 
-# =============================================================================
-# NAMESPACES
-# =============================================================================
 ensure_namespaces() {
   section "Namespaces"
   for ns in "$NAMESPACE" "$BANKING_NS" kyverno vault external-secrets monitoring argocd; do
@@ -178,9 +201,6 @@ ensure_namespaces() {
   apply_manifest_cluster "$MANIFESTS/k8s/namespace.yaml"
 }
 
-# =============================================================================
-# TEKTON INSTALLATION
-# =============================================================================
 wait_for_tekton_crds() {
   log "waiting for Tekton CRDs to establish..."
   local crds=(
@@ -240,20 +260,31 @@ configure_tekton_feature_flags() {
 install_tekton_components() {
   section "Installing Tekton"
 
+  wait_for_api_server
+
+  if ! $DRY_RUN && ! kyverno_pods_running; then
+    warn "Kyverno pods not Running — temporarily setting webhooks to Ignore to unblock install"
+    patch_kyverno_webhooks Ignore
+  fi
+
   log "installing Tekton Pipelines (v0.68.0)"
-  retry_cmd 3 4 kubectl apply -f \
+  retry_cmd 5 10 kubectl apply --server-side=true --force-conflicts -f \
     "https://storage.googleapis.com/tekton-releases/pipeline/previous/v0.68.0/release.yaml"
 
   log "installing Tekton Triggers (v0.30.0)"
-  retry_cmd 3 4 kubectl apply -f \
+  retry_cmd 5 10 kubectl apply --server-side=true --force-conflicts -f \
     "https://storage.googleapis.com/tekton-releases/triggers/previous/v0.30.0/release.yaml"
-  retry_cmd 3 4 kubectl apply -f \
+  retry_cmd 5 10 kubectl apply --server-side=true --force-conflicts -f \
     "https://storage.googleapis.com/tekton-releases/triggers/previous/v0.30.0/interceptors.yaml"
 
   if [[ "$INSTALL_DASHBOARD" == "true" ]]; then
     log "installing Tekton Dashboard (v0.52.0)"
-    retry_cmd 3 4 kubectl apply -f \
+    retry_cmd 5 10 kubectl apply --server-side=true --force-conflicts -f \
       "https://storage.googleapis.com/tekton-releases/dashboard/previous/v0.52.0/release.yaml"
+  fi
+
+  if ! $DRY_RUN; then
+    patch_kyverno_webhooks Fail
   fi
 
   wait_for_tekton_crds
@@ -261,9 +292,6 @@ install_tekton_components() {
   configure_tekton_feature_flags
 }
 
-# =============================================================================
-# SECRETS — resolve from existing k8s secrets / docker login (no prompts)
-# =============================================================================
 resolve_docker_config_path() {
   if [[ -n "${DOCKER_CONFIG_JSON:-}" ]]; then
     echo "$DOCKER_CONFIG_JSON"; return
@@ -275,14 +303,13 @@ resolve_docker_config_path() {
 }
 
 resolve_docker_username() {
-  # 1. From existing docker-hub-params secret
   if secret_exists docker-hub-params "$NAMESPACE"; then
     local u
     u=$(kubectl get secret docker-hub-params -n "$NAMESPACE" \
       -o jsonpath='{.data.DOCKER_USERNAME}' 2>/dev/null | base64 -d || echo "")
     [[ -n "$u" ]] && { echo "$u"; return; }
   fi
-  # 2. Parse ~/.docker/config.json
+  
   local cfg; cfg="$(resolve_docker_config_path)"
   if [[ -f "$cfg" ]]; then
     python3 -c "
@@ -301,7 +328,6 @@ except Exception: pass
 resolve_git_url() {
   local url
   url="${TEKTON_REPO_URL:-$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || echo "")}"
-  # Normalise SSH → HTTPS
   if [[ "$url" == git@github.com:* ]]; then
     url="${url/git@github.com:/https://github.com/}"
   fi
@@ -311,7 +337,6 @@ resolve_git_url() {
 ensure_secrets() {
   section "Secrets"
 
-  # ── regcred ───────────────────────────────────────────────────────────────
   local docker_cfg; docker_cfg="$(resolve_docker_config_path)"
   [[ -f "$docker_cfg" ]] || die "docker config not found at $docker_cfg — run 'docker login' first"
 
@@ -327,7 +352,6 @@ ensure_secrets() {
     fi
   done
 
-  # ── docker-hub-params ─────────────────────────────────────────────────────
   local docker_user; docker_user="$(resolve_docker_username)"
   [[ -n "$docker_user" ]] || die "Cannot resolve Docker username — run 'docker login' or vault-credentials.sh first"
 
@@ -340,7 +364,6 @@ ensure_secrets() {
     success "docker-hub-params created (user=$docker_user, repo=$DOCKER_REPO)"
   fi
 
-  # ── git-credentials ───────────────────────────────────────────────────────
   local git_url; git_url="$(resolve_git_url)"
   [[ -n "$git_url" ]] || die "Cannot resolve git URL — set TEKTON_REPO_URL or ensure git remote origin is set"
 
@@ -352,7 +375,6 @@ ensure_secrets() {
     success "git-credentials created (url=$git_url)"
   fi
 
-  # ── cosign-key ────────────────────────────────────────────────────────────
   if secret_exists cosign-key "$NAMESPACE"; then
     success "cosign-key: present"
   else
@@ -366,7 +388,6 @@ ensure_secrets() {
     fi
   fi
 
-  # ── github-webhook-secret (auto-generated) ────────────────────────────────
   if secret_exists github-webhook-secret "$NAMESPACE"; then
     log "github-webhook-secret: exists"
   else
@@ -380,15 +401,11 @@ ensure_secrets() {
   export GIT_REPO_URL="$git_url"
 }
 
-# =============================================================================
-# RBAC
-# =============================================================================
 apply_rbac() {
   section "RBAC"
   apply_manifest "$MANIFESTS/tekton/rbac/serviceaccount.yaml"
   apply_manifest "$MANIFESTS/tekton/rbac/rolebinding.yaml"
 
-  # Patch SA to pull images using regcred
   $DRY_RUN || kubectl patch serviceaccount tekton-pipeline-sa \
     -n "$NAMESPACE" --type=json \
     -p='[{"op":"add","path":"/imagePullSecrets/-","value":{"name":"regcred"}}]' \
@@ -396,9 +413,6 @@ apply_rbac() {
   success "RBAC configured"
 }
 
-# =============================================================================
-# WORKSPACES (PVC)
-# =============================================================================
 apply_workspaces() {
   section "Workspaces"
   apply_manifest "$MANIFESTS/tekton/workspaces/pvc.yaml"
@@ -416,9 +430,6 @@ apply_workspaces() {
   warn "PVC not Bound after 60s — check: kubectl get pvc -n $NAMESPACE"
 }
 
-# =============================================================================
-# TASKS — apply all 13 task definitions in dependency order
-# =============================================================================
 apply_tasks() {
   section "Tekton Tasks"
 
@@ -455,9 +466,6 @@ apply_tasks() {
   success "$count Task(s) registered ($applied applied, $skipped missing)"
 }
 
-# =============================================================================
-# PIPELINES
-# =============================================================================
 apply_pipelines() {
   section "Pipelines"
   apply_manifest "$MANIFESTS/tekton/pipelines/ci-pipeline.yaml"
@@ -469,9 +477,6 @@ apply_pipelines() {
   success "$count Pipeline(s) registered"
 }
 
-# =============================================================================
-# TRIGGERS
-# =============================================================================
 apply_triggers() {
   section "Triggers"
   retry_cmd 3 2 kubectl -n "$NAMESPACE" apply -f \
@@ -496,9 +501,6 @@ apply_triggers() {
     || warn "EventListener may not be ready — check: kubectl get pods -n $NAMESPACE"
 }
 
-# =============================================================================
-# VERIFY — confirm everything registered correctly
-# =============================================================================
 verify_setup() {
   section "Verification"
   $DRY_RUN && { success "skipping verification (dry run)"; return 0; }
@@ -558,9 +560,6 @@ verify_setup() {
     || warn "some checks failed — review ✘ items above"
 }
 
-# =============================================================================
-# TEKTON DASHBOARD — port-forward
-# =============================================================================
 open_dashboard() {
   section "Tekton Dashboard"
   $DRY_RUN && { log "DRY RUN: would port-forward :9097"; return 0; }
@@ -587,14 +586,10 @@ open_dashboard() {
   fi
 }
 
-# =============================================================================
-# PIPELINERUN — create initial run with all params auto-resolved
-# =============================================================================
 create_pipeline_run() {
   section "PipelineRun"
   $DRY_RUN && { log "DRY RUN: would create PipelineRun"; return 0; }
 
-  # Resolve params (may already be exported from ensure_secrets)
   local docker_user="${DOCKER_USERNAME:-$(resolve_docker_username)}"
   local git_url="${GIT_REPO_URL:-$(resolve_git_url)}"
   local git_rev="${GIT_REVISION:-main}"
@@ -602,7 +597,6 @@ create_pipeline_run() {
   [[ -n "$docker_user" ]] || die "Cannot resolve Docker username"
   [[ -n "$git_url" ]]     || die "Cannot resolve git URL"
 
-  # Cosign gating
   if [[ "$COSIGN_SIGN_ENABLED" == "true" ]] && \
      ! secret_exists cosign-key "$NAMESPACE"; then
     die "COSIGN_SIGN_ENABLED=true but cosign-key secret is missing in $NAMESPACE — run security-init.sh first or set COSIGN_SIGN_ENABLED=false"
@@ -630,16 +624,17 @@ metadata:
     app.kubernetes.io/part-of: dtb-banking-portal
     triggered-by: tekton-init-script
 spec:
-  serviceAccountName: tekton-pipeline-sa
   timeouts:
     pipeline: 1h0m0s
     tasks:    55m0s
     finally:  5m0s
   pipelineRef:
     name: banking-ci-pipeline
-  podTemplate:
-    securityContext:
-      fsGroup: 65532
+  taskRunTemplate:
+    serviceAccountName: tekton-pipeline-sa
+    podTemplate:
+      securityContext:
+        fsGroup: 65532
   params:
     - name: git-url
       value: "${git_url}"
@@ -651,18 +646,6 @@ spec:
       value: "${image_tag}"
     - name: docker-username
       value: "${docker_user}"
-    - name: run-integration-tests
-      value: "${RUN_INTEGRATION_TESTS}"
-    - name: trivy-fail-on-critical
-      value: "${TRIVY_FAIL_ON_CRITICAL}"
-    - name: cosign-sign-enabled
-      value: "${COSIGN_SIGN_ENABLED}"
-    - name: argocd-auto-deploy
-      value: "${ARGOCD_AUTO_DEPLOY}"
-    - name: argocd-namespace
-      value: "${ARGOCD_NAMESPACE}"
-    - name: argocd-app-name
-      value: "${ARGOCD_APP_NAME}"
   workspaces:
     - name: pipeline-workspace
       volumeClaimTemplate:
@@ -690,7 +673,6 @@ EOF
   echo -e "  ${CYAN}tkn pipelinerun logs ${run_name} -f -n ${NAMESPACE}${NC}"
   echo ""
 
-  # Wait up to 30s for run to transition to Running
   local elapsed=0
   while (( elapsed < 30 )); do
     local reason
@@ -710,9 +692,6 @@ EOF
   done
 }
 
-# =============================================================================
-# FINAL SUMMARY
-# =============================================================================
 print_summary() {
   section "Setup Complete"
 
@@ -742,9 +721,6 @@ print_summary() {
   echo ""
 }
 
-# =============================================================================
-# MAIN
-# =============================================================================
 echo ""
 echo -e "${BOLD}DTB Banking Portal — Tekton Pipeline Bootstrap${NC}"
 echo -e "  namespace : $NAMESPACE"

@@ -1,14 +1,4 @@
-# =============================================================================
-# frontend/deployment.yaml — React 18 + Nginx Frontend Deployment
-#
-# Nginx is configured (via nginx.conf in the image) to:
-#   - Serve the React SPA on /
-#   - Proxy /api/* to the backend ClusterIP service
-#
-# Image: built by the Tekton pipeline and pushed to Docker Hub.
-# Replace DOCKERHUB_USERNAME with your actual Docker Hub username,
-# or let the pipeline substitute it via Kustomize/envsubst.
-# =============================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,7 +19,7 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0     # zero-downtime rollouts
+      maxUnavailable: 0    
 
   template:
     metadata:
@@ -42,14 +32,14 @@ spec:
         checksum/config: "placeholder-updated-by-pipeline"
 
     spec:
-      # ── Security: run as non-root nginx ──────────────────────────────────
+      
       securityContext:
         runAsNonRoot: true
-        runAsUser: 101      # nginx user in the Alpine image
+        runAsUser: 101      
         runAsGroup: 101
         fsGroup: 101
 
-      # ── Wait for backend to be ready ─────────────────────────────────────
+      
       initContainers:
         - name: wait-for-backend
           image: busybox:1.36
@@ -71,7 +61,7 @@ spec:
 
       containers:
         - name: frontend
-          # Pipeline replaces DOCKERHUB_USERNAME and IMAGE_TAG at build time
+          
           image: DOCKERHUB_USERNAME/banking-frontend:latest
           imagePullPolicy: Always
           ports:
@@ -79,7 +69,7 @@ spec:
               containerPort: 80
               protocol: TCP
 
-          # ── Probes ────────────────────────────────────────────────────
+          
           livenessProbe:
             httpGet:
               path: /health
@@ -106,7 +96,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 12
 
-          # ── Resources ─────────────────────────────────────────────────
+          
           resources:
             requests:
               cpu: "50m"
@@ -115,14 +105,14 @@ spec:
               cpu: "200m"
               memory: "256Mi"
 
-          # ── Security context ──────────────────────────────────────────
+          
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
 
-          # ── Nginx writable paths (matches docker-compose tmpfs) ────────
+          
           volumeMounts:
             - name: nginx-cache
               mountPath: /var/cache/nginx
@@ -139,11 +129,11 @@ spec:
         - name: tmp
           emptyDir: {}
 
-      # ── Image pull secret ──────────────────────────────────────────────
+      
       imagePullSecrets:
         - name: regcred
 
-      # ── Spread replicas across nodes ───────────────────────────────────
+      
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

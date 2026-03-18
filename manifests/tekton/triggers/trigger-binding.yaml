@@ -1,11 +1,4 @@
-# =============================================================================
-# triggers/trigger-binding.yaml — TriggerBindings
-#
-# Extract values from the GitHub webhook payload and map them to
-# pipeline parameters. One binding per event type.
-# =============================================================================
 
-# ── Push event binding (push to main) ────────────────────────────────────────
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:
@@ -19,15 +12,14 @@ spec:
     - name: git-url
       value: $(body.repository.clone_url)
     - name: git-revision
-      value: $(body.after)             # full commit SHA
+      value: $(body.after)
     - name: git-branch
-      value: $(body.ref)               # refs/heads/main
+      value: $(body.ref)
     - name: image-tag
-      value: $(body.after)             # use commit SHA as image tag
+      value: $(body.after)
 
 ---
 
-# ── Pull request event binding ────────────────────────────────────────────────
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerBinding
 metadata:

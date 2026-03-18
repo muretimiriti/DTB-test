@@ -1,11 +1,3 @@
-# =============================================================================
-# mongodb/statefulset.yaml — MongoDB 7.0 StatefulSet
-#
-# StatefulSet (vs Deployment) gives stable network identity and ordered
-# pod management — critical for databases.
-#
-# Apply order: namespace → secret → configmap → statefulset → service
-# =============================================================================
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -17,7 +9,7 @@ metadata:
     app.kubernetes.io/component: database
     app.kubernetes.io/version: "7.0"
 spec:
-  serviceName: mongodb-headless   # must match the headless service name
+  serviceName: mongodb-headless
   replicas: 1
   selector:
     matchLabels:
@@ -31,14 +23,12 @@ spec:
         app.kubernetes.io/component: database
         app.kubernetes.io/version: "7.0"
     spec:
-      # ── Security: run as non-root ────────────────────────────────────────
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999      # mongodb official image user
+        runAsUser: 999
         runAsGroup: 999
         fsGroup: 999
 
-      # ── Init: ensure data dir is owned correctly ─────────────────────────
       initContainers:
         - name: fix-data-dir-permissions
           image: busybox:1.36
@@ -49,7 +39,7 @@ spec:
             - name: mongo-config
               mountPath: /data/configdb
           securityContext:
-            runAsUser: 0       # needs root only for this init step
+            runAsUser: 0
 
       containers:
         - name: mongodb
@@ -60,7 +50,6 @@ spec:
               containerPort: 27017
               protocol: TCP
 
-          # ── Environment — credentials from Secret ──────────────────────
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               valueFrom:
@@ -85,7 +74,6 @@ spec:
                   name: mongodb-secret
                   key: MONGO_APP_PASSWORD
 
-          # ── Initialisation script (runs once on first start) ───────────
           volumeMounts:
             - name: mongo-data
               mountPath: /data/db
@@ -96,7 +84,6 @@ spec:
               subPath: mongo-init.js
               readOnly: true
 
-          # ── Probes ────────────────────────────────────────────────────
           livenessProbe:
             exec:
               command:
@@ -121,7 +108,6 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 3
 
-          # ── Resources ─────────────────────────────────────────────────
           resources:
             requests:
               cpu: "250m"
@@ -130,10 +116,9 @@ spec:
               cpu: "1000m"
               memory: "1Gi"
 
-          # ── Security context ──────────────────────────────────────────
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false    # MongoDB needs to write to data dirs
+            readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
 
@@ -142,14 +127,11 @@ spec:
           configMap:
             name: mongodb-init-script
 
-      # ── Restart policy ────────────────────────────────────────────────
       restartPolicy: Always
 
-      # ── Image pull secret (from Docker Hub) ───────────────────────────
       imagePullSecrets:
         - name: regcred
 
-  # ── Persistent volume claims (one per pod, managed by StatefulSet) ────────
   volumeClaimTemplates:
     - metadata:
         name: mongo-data

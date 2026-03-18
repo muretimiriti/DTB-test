@@ -33,7 +33,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await Account.deleteMany({});
-  // Create and login
+
   const createRes = await request(app).post('/api/accounts').send(testAccount);
   accountNumber = createRes.body.data.accountNumber;
   const loginRes = await request(app).post('/api/accounts/login').send({

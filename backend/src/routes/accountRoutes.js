@@ -20,7 +20,6 @@ const pinBody = body('pin')
   .matches(/^\d{4,6}$/)
   .withMessage('PIN must be 4-6 digits');
 
-// Public routes
 router.post(
   '/',
   [
@@ -46,7 +45,6 @@ router.post(
   login
 );
 
-// Protected routes
 router.use(authenticate);
 
 router.get('/:accountNumber', [accountNumberParam, validate], getAccount);

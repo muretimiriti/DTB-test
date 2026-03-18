@@ -105,7 +105,7 @@ describe('Account Model - Unit Tests', () => {
       for (let i = 0; i < 4; i++) {
         await account.verifyPin('0000');
       }
-      // 5th attempt triggers lock
+
       await account.verifyPin('0000');
 
       const fresh = await Account.findById(account._id).select('+lockedUntil');

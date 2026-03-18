@@ -94,14 +94,12 @@ const accountSchema = new mongoose.Schema(
   }
 );
 
-// Hash PIN before saving
 accountSchema.pre('save', async function (next) {
   if (!this.isModified('pin')) return next();
   this.pin = await bcrypt.hash(this.pin, config.bcryptRounds);
   next();
 });
 
-// Verify PIN with brute-force protection
 accountSchema.methods.verifyPin = async function (candidatePin) {
   const now = new Date();
   if (this.lockedUntil && this.lockedUntil > now) {
@@ -116,7 +114,7 @@ accountSchema.methods.verifyPin = async function (candidatePin) {
   if (!isMatch) {
     this.failedPinAttempts += 1;
     if (this.failedPinAttempts >= 5) {
-      this.lockedUntil = new Date(now.getTime() + 15 * 60 * 1000); // 15 min lock
+      this.lockedUntil = new Date(now.getTime() + 15 * 60 * 1000);
       this.failedPinAttempts = 0;
     }
     await this.save();

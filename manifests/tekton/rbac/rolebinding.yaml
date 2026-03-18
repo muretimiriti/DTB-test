@@ -1,13 +1,4 @@
-# =============================================================================
-# rbac/rolebinding.yaml — RBAC for the Tekton pipeline ServiceAccount
-#
-# Grants the pipeline SA permissions to:
-#   - Read/write secrets (for Docker Hub, Git, Vault tokens)
-#   - Create/update ConfigMaps (for build metadata)
-#   - Access the banking namespace for deployment tasks
-# =============================================================================
 
-# ── Role: pipeline permissions within tekton-pipelines namespace ──────────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -26,7 +17,6 @@ rules:
 
 ---
 
-# ── RoleBinding: bind SA to role in tekton-pipelines namespace ───────────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -46,7 +36,6 @@ roleRef:
 
 ---
 
-# ── ClusterRole: read access to banking namespace (for deploy task) ───────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -64,7 +53,6 @@ rules:
 
 ---
 
-# ── ClusterRoleBinding: bind SA to deploy role ────────────────────────────────
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

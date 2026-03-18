@@ -1,16 +1,4 @@
-# =============================================================================
-# mongodb/service.yaml — MongoDB Services
-#
-# Two services:
-#   1. mongodb-headless  (ClusterIP: None) — stable DNS for the StatefulSet pod.
-#      DNS: mongodb-0.mongodb-headless.banking.svc.cluster.local
-#      Used by the backend MONGODB_URI.
-#
-#   2. mongodb           (ClusterIP) — optional round-robin endpoint for tooling.
-#      NOT exposed outside the cluster. MongoDB is backend-only.
-# =============================================================================
 
-# ── Headless service (required for StatefulSet DNS) ───────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -21,7 +9,7 @@ metadata:
     app.kubernetes.io/part-of: dtb-banking-portal
     app.kubernetes.io/component: database
 spec:
-  clusterIP: None     # headless — no load balancing, direct pod DNS
+  clusterIP: None
   selector:
     app.kubernetes.io/name: mongodb
     app.kubernetes.io/component: database
@@ -33,7 +21,6 @@ spec:
 
 ---
 
-# ── ClusterIP service (for tooling / readiness checks) ───────────────────────
 apiVersion: v1
 kind: Service
 metadata:
