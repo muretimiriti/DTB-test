@@ -4,6 +4,25 @@ A production-grade, cloud-native banking web application built on a full Kuberne
 
 ---
 
+## Table of Contents
+
+- [What the Application Does](#what-the-application-does)
+- [Architecture](#architecture)
+- [Stack at a Glance](#stack-at-a-glance)
+- [Repository Layout](#repository-layout)
+- [Prerequisites](#prerequisites)
+- [Quick Start — Local Development](#quick-start--local-development-docker-compose)
+- [Full Kubernetes Stack](#full-kubernetes-stack--step-by-step)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Security Controls](#security-controls)
+- [Observability](#observability)
+- [Health Checks](#health-checks)
+- [Troubleshooting](#troubleshooting)
+- [Running Tests Locally](#running-tests-locally)
+- [Further Reading](#further-reading)
+
+---
+
 ## What the Application Does
 
 The DTB Banking Portal is a full-stack web banking system with:
@@ -13,7 +32,9 @@ The DTB Banking Portal is a full-stack web banking system with:
 - **Transaction history** — paginated per-account transaction log
 - **JWT-authenticated REST API** — all endpoints protected, secrets stored in Vault
 
-### Architecture
+---
+
+## Architecture
 
 ```
 Browser
@@ -29,18 +50,18 @@ All three tiers run in the `banking` namespace on Kubernetes. MongoDB uses a hea
 ## Stack at a Glance
 
 | Layer | Technology | Version |
-| --- | --- | --- |
-| App | Node.js + React | - |
+|-------|------------|---------|
+| App | Node.js + React | — |
 | Database | MongoDB | 7.0 |
-| Container runtime | Docker + minikube | - |
+| Container runtime | Docker + minikube | — |
 | CI/CD | Tekton Pipelines | v0.68.0 |
 | GitOps | ArgoCD | v2.14.6 |
 | Secrets | HashiCorp Vault + ESO | chart 0.30.0 |
-| Policy enforcement | Kyverno | - |
-| Image signing | Cosign | - |
-| Vulnerability scanning | Trivy | - |
+| Policy enforcement | Kyverno | — |
+| Image signing | Cosign | — |
+| Vulnerability scanning | Trivy | — |
 | Observability | Prometheus + Grafana + Loki + OTel | chart 69.8.2 |
-| OPA policies | Conftest + Rego | - |
+| OPA policies | Conftest + Rego | — |
 
 ---
 
@@ -85,15 +106,15 @@ All three tiers run in the `banking` namespace on Kubernetes. MongoDB uses a hea
 
 ## Prerequisites
 
-| Tool | Minimum version | Install |
-| --- | --- | --- |
+| Tool | Minimum Version | Install |
+|------|-----------------|---------|
 | Docker | 20.x | [docs.docker.com](https://docs.docker.com/engine/install/) |
 | minikube | 1.32+ | [minikube.sigs.k8s.io](https://minikube.sigs.k8s.io/docs/start/) |
 | kubectl | 1.28+ | [kubernetes.io](https://kubernetes.io/docs/tasks/tools/) |
 | Helm | 3.x | [helm.sh](https://helm.sh/docs/intro/install/) |
 | Git | any | system package |
 
-Internet access is required — Helm charts, Tekton releases, and container images are pulled at install time.
+> **Note:** Internet access is required — Helm charts, Tekton releases, and container images are pulled at install time.
 
 ---
 
@@ -110,12 +131,15 @@ cp backend/.env.example backend/.env
 
 # Start all three services
 docker compose up -d
+```
 
-# App is available at:
-#   Frontend:  http://localhost:3000
-#   Backend:   http://localhost:5000
-#   MongoDB:   localhost:27017
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| Backend | http://localhost:5000 |
+| MongoDB | localhost:27017 |
 
+```bash
 # Tail logs
 docker compose logs -f
 
@@ -183,10 +207,10 @@ This runs all 6 stages sequentially, waits for each to succeed, and writes a per
 ./scripts/bootstrap.sh --skip-observability
 ```
 
-**Stage flags**
+**Stage Flags**
 
 | Flag | Skips |
-| --- | --- |
+|------|-------|
 | `--skip-prerequisites` | Stage 1 |
 | `--skip-credentials` | Stage 2 |
 | `--skip-security` | Stage 3 |
@@ -251,7 +275,7 @@ kubectl port-forward svc/vault -n vault 8200:8200 &
 ```
 
 | Service | URL | Credentials |
-| --- | --- | --- |
+|---------|-----|-------------|
 | Banking App (frontend) | http://banking.local | — |
 | Backend API | http://banking.local/api | JWT required |
 | Tekton Dashboard | http://localhost:9097 | no auth |
@@ -260,7 +284,7 @@ kubectl port-forward svc/vault -n vault 8200:8200 &
 | Prometheus | http://localhost:9090 | no auth |
 | Vault UI | http://localhost:8200 | token: `root` |
 
-Retrieve generated passwords:
+**Retrieve generated passwords:**
 
 ```bash
 # ArgoCD
@@ -272,7 +296,7 @@ kubectl get secret prometheus-grafana -n monitoring \
   -o jsonpath='{.data.admin-password}' | base64 -d && echo
 ```
 
-For the banking app Ingress, add `banking.local` to `/etc/hosts`:
+**Add the banking app Ingress to `/etc/hosts`:**
 
 ```bash
 echo "$(minikube ip) banking.local" | sudo tee -a /etc/hosts
@@ -293,7 +317,7 @@ git-clone → lint-sast → ┬─ test-backend  ─┐
 ```
 
 | Stage | What it does |
-| --- | --- |
+|-------|--------------|
 | `git-clone` | Clones the repository at the pushed commit |
 | `lint-sast` | ESLint, npm audit, hadolint (Dockerfile), gitleaks secret scan |
 | `test-backend` | Jest unit + integration tests, 80% coverage gate |
@@ -321,7 +345,9 @@ tkn pipelinerun logs -f -n tekton-pipelines
 
 ### GitOps Loop
 
-After `update-manifests` pushes the new image tag to git, ArgoCD detects the change within 30 minutes (configurable via `POLLING_INTERVAL`) and syncs the `banking` namespace automatically. Force an immediate sync:
+After `update-manifests` pushes the new image tag to git, ArgoCD detects the change within 30 minutes (configurable via `POLLING_INTERVAL`) and syncs the `banking` namespace automatically.
+
+**Force an immediate sync:**
 
 ```bash
 argocd app sync dtb-banking-portal
@@ -335,7 +361,7 @@ kubectl -n argocd patch application dtb-banking-portal \
 ## Security Controls
 
 | Control | Mechanism |
-| --- | --- |
+|---------|-----------|
 | Secrets at rest | HashiCorp Vault KV v2 — never in git |
 | Secret injection | External Secrets Operator syncs Vault → k8s Secrets |
 | Admission policies | Kyverno — requires resource limits, non-root, no privilege escalation, signed images |
@@ -351,8 +377,8 @@ kubectl -n argocd patch application dtb-banking-portal \
 
 Three Grafana dashboards are imported automatically by `observability-init.sh`:
 
-| Dashboard | ID | Data source |
-| --- | --- | --- |
+| Dashboard | ID | Data Source |
+|-----------|----|-------------|
 | Node Exporter Full | 1860 | Prometheus |
 | Kubernetes Cluster | 7249 | Prometheus |
 | Loki Logs | 13639 | Loki |
@@ -387,43 +413,48 @@ kubectl get policyreport -n banking
 
 ## Troubleshooting
 
-**Tekton install fails with `Kyverno webhook: connection refused`**
+### Tekton install fails with `Kyverno webhook: connection refused`
 
 Kyverno admission controller is not running — the bootstrap auto-patches Kyverno webhooks to `Ignore` during installs and restores them after. If running manually:
+
 ```bash
 kubectl patch validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg \
   --type=json -p='[{"op":"replace","path":"/webhooks/0/failurePolicy","value":"Ignore"}]'
+
 # ... run install ...
+
 kubectl patch validatingwebhookconfiguration kyverno-resource-validating-webhook-cfg \
   --type=json -p='[{"op":"replace","path":"/webhooks/0/failurePolicy","value":"Fail"}]'
 ```
 
-**`connection refused 192.168.49.2:8443` during bootstrap**
+### `connection refused 192.168.49.2:8443` during bootstrap
 
 The minikube API server dropped. The bootstrap waits up to 2 minutes for recovery:
+
 ```bash
 minikube status
 minikube start
 ./scripts/bootstrap.sh --resume-from <last-failed-stage>
 ```
 
-**PipelineRun stuck or failing**
+### PipelineRun stuck or failing
 
 ```bash
 tkn pipelinerun describe -n tekton-pipelines
 tkn pipelinerun logs <run-name> -f -n tekton-pipelines
 ```
 
-**ArgoCD not syncing**
+### ArgoCD not syncing
 
 ```bash
 argocd app get dtb-banking-portal
 argocd app sync dtb-banking-portal --force
 ```
 
-**Stage logs**
+### Stage logs
 
 Each bootstrap stage writes a full log:
+
 ```bash
 cat logs/bootstrap/prerequisites.log
 cat logs/bootstrap/tekton.log
@@ -451,7 +482,7 @@ cd frontend && npm install && npm test
 ## Further Reading
 
 | Document | Path |
-| --- | --- |
+|----------|------|
 | Architecture overview | [doc/architecture.md](doc/architecture.md) |
 | API reference | [doc/api-reference.md](doc/api-reference.md) |
 | Tekton pipeline walkthrough | [doc/tekton-walkthrough.md](doc/tekton-walkthrough.md) |
