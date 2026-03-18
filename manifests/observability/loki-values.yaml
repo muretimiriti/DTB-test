@@ -1,0 +1,38 @@
+# Helm values for Loki (grafana/loki-stack chart)
+# Applied by: helm upgrade --install loki grafana/loki-stack \
+#               -n monitoring -f manifests/observability/loki-values.yaml
+
+loki:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClassName: standard-rwo
+    size: 10Gi
+  config:
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h   # 7 days
+
+promtail:
+  enabled: true
+  config:
+    # Scrape all pod logs; add Kubernetes metadata labels
+    snippets:
+      pipelineStages:
+        - docker: {}
+        - match:
+            selector: '{namespace="banking"}'
+            stages:
+              - json:
+                  expressions:
+                    level: level
+                    msg: msg
+              - labels:
+                  level:
+
+grafana:
+  enabled: false    # Grafana is managed by the prometheus-stack chart
+  sidecar:
+    datasources:
+      enabled: true
+      label: grafana_datasource

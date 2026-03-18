@@ -1,0 +1,32 @@
+---
+# ResourceQuota — caps total compute and object counts in the banking namespace.
+# Values are sized for a single-node minikube with 4 CPUs / 8 GB RAM.
+# Increase limits proportionally for production multi-node clusters.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: banking-quota
+  namespace: banking
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  hard:
+    # Compute
+    requests.cpu: "2"
+    requests.memory: "2Gi"
+    limits.cpu: "4"
+    limits.memory: "4Gi"
+
+    # Storage
+    requests.storage: "30Gi"
+    persistentvolumeclaims: "10"
+
+    # Object counts
+    pods: "20"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+    replicationcontrollers: "0"

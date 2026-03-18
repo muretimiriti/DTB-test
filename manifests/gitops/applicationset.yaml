@@ -1,0 +1,92 @@
+---
+# ApplicationSet — generates one ArgoCD Application per environment using the
+# List generator.  Each entry maps an environment name to its kustomize overlay
+# path and target namespace.
+#
+# Promotion flow:
+#   dev  (auto-sync on every commit to main)
+#   staging (auto-sync; CD pipeline runs smoke tests here)
+#   prod    (auto-sync only after staging smoke tests pass — enforced by CD pipeline gate)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: dtb-banking-portal
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  # ── Template ──────────────────────────────────────────────────────────────────
+  template:
+    metadata:
+      name: "dtb-banking-{{env}}"
+      labels:
+        app.kubernetes.io/name: dtb-banking-portal
+        app.kubernetes.io/instance: "{{env}}"
+        app.kubernetes.io/part-of: dtb-banking-portal
+        environment: "{{env}}"
+      annotations:
+        # Image Updater — one entry per environment image
+        argocd-image-updater.argoproj.io/image-list: >-
+          backend=muretimiriti/dtb-project-backend,
+          frontend=muretimiriti/dtb-project-frontend
+        argocd-image-updater.argoproj.io/backend.update-strategy: "{{imageStrategy}}"
+        argocd-image-updater.argoproj.io/frontend.update-strategy: "{{imageStrategy}}"
+        argocd-image-updater.argoproj.io/write-back-method: git
+        argocd-image-updater.argoproj.io/git-branch: main
+        argocd-image-updater.argoproj.io/write-back-target: "kustomization:manifests/environments/{{env}}"
+    spec:
+      project: dtb-banking
+
+      source:
+        repoURL: "https://github.com/muretimiriti/DTB-test.git"
+        targetRevision: HEAD
+        path: "manifests/environments/{{env}}"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+          - PrunePropagationPolicy=foreground
+          - PruneLast=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/template/metadata/annotations/checksum~1config
+
+  # ── Generators ────────────────────────────────────────────────────────────────
+  generators:
+    - list:
+        elements:
+          - env: dev
+            namespace: banking-dev
+            imageStrategy: latest     # dev always tracks the latest built image
+          - env: staging
+            namespace: banking-staging
+            imageStrategy: semver     # staging tracks semver tags (v*)
+          - env: prod
+            namespace: banking
+            imageStrategy: semver     # prod only promotes after staging gate
+
+  # ── Sync policy ───────────────────────────────────────────────────────────────
+  # goTemplateOptions ensures the template merges correctly
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]

@@ -1,0 +1,23 @@
+---
+# PodDisruptionBudget — MongoDB runs as a single-replica StatefulSet in dev/staging.
+# This PDB prevents the pod from being evicted during node maintenance when
+# no replica is available to take over, protecting against data loss.
+# In production you would run a 3-member replica set and set minAvailable: 2.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mongodb
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  # For a single-replica StatefulSet this means "do not evict unless I say so"
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      app.kubernetes.io/component: database

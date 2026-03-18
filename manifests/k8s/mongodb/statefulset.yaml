@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/part-of: dtb-banking-portal
     app.kubernetes.io/component: database
     app.kubernetes.io/version: "7.0"
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   serviceName: mongodb-headless
   replicas: 1

@@ -1,0 +1,20 @@
+---
+# PodDisruptionBudget — guarantees at least 1 backend pod remains available
+# during voluntary disruptions (node drain, rolling upgrade, etc.).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: banking-backend
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: banking-backend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: backend
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: banking-backend
+      app.kubernetes.io/component: backend

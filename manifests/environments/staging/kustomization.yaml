@@ -1,0 +1,83 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ── Staging overlay ─────────────────────────────────────────────────────────────
+# Mirrors production sizing at 50% to catch integration issues before promotion.
+# The CD pipeline runs smoke tests here before promoting to prod.
+# ────────────────────────────────────────────────────────────────────────────────
+
+namespace: banking-staging
+
+resources:
+  - ../../k8s
+
+namePrefix: staging-
+
+commonLabels:
+  environment: staging
+  app.kubernetes.io/environment: staging
+
+# ── Replica counts ──────────────────────────────────────────────────────────────
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: banking-backend
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: banking-frontend
+
+  # ── Resource limits (staging ≈ prod) ─────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+    target:
+      kind: Deployment
+      name: banking-backend
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+    target:
+      kind: Deployment
+      name: banking-frontend
+
+  # ── Ingress host (staging) ────────────────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: banking-staging.local
+    target:
+      kind: Ingress
+      name: banking-ingress
+
+# ── Image tags ─────────────────────────────────────────────────────────────────
+images:
+  - name: DOCKERHUB_USERNAME/banking-backend
+    newName: DOCKERHUB_USERNAME/banking-backend
+    newTag: replace-me
+  - name: DOCKERHUB_USERNAME/banking-frontend
+    newName: DOCKERHUB_USERNAME/banking-frontend
+    newTag: replace-me

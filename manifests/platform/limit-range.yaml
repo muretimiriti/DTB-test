@@ -1,0 +1,42 @@
+---
+# LimitRange — sets per-container defaults so pods without explicit requests/limits
+# still get sensible values and the Kyverno require-resource-limits policy passes.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: banking-limits
+  namespace: banking
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  limits:
+    # Container defaults
+    - type: Container
+      default:
+        cpu: "200m"
+        memory: "256Mi"
+      defaultRequest:
+        cpu: "50m"
+        memory: "64Mi"
+      max:
+        cpu: "2"
+        memory: "2Gi"
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+
+    # Pod-level cap (sum of all containers)
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "4Gi"
+
+    # PersistentVolumeClaim size range
+    - type: PersistentVolumeClaim
+      max:
+        storage: "20Gi"
+      min:
+        storage: "1Gi"

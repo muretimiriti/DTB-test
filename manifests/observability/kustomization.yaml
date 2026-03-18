@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Helm-based components (prometheus-stack, loki-stack) are installed by
+# observability-init.sh using their respective values files in this directory.
+# This kustomization manages only the additional manifests that extend them.
+
+resources:
+  - otel-collector.yaml
+  - banking-service-monitor.yaml
+  - grafana-loki-datasource.yaml

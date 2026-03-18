@@ -1,0 +1,72 @@
+---
+# AppProject — fences ArgoCD RBAC: only this project's applications may deploy
+# to the banking-* namespaces from this repository.
+# Any ArgoCD Application that tries to sync a different repo or namespace is rejected.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: dtb-banking
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: gitops
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  # Prevent accidental deletion while apps are running
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "DTB Banking Portal — all environments"
+
+  # ── Source repositories ──────────────────────────────────────────────────────
+  # Only manifests from the official repo are allowed.
+  sourceRepos:
+    - "https://github.com/muretimiriti/DTB-test.git"
+
+  # ── Allowed destinations ─────────────────────────────────────────────────────
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: banking
+    - server: https://kubernetes.default.svc
+      namespace: banking-staging
+    - server: https://kubernetes.default.svc
+      namespace: banking-dev
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+    - server: https://kubernetes.default.svc
+      namespace: otel
+
+  # ── Cluster-scoped resource whitelist ────────────────────────────────────────
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "networking.k8s.io"
+      kind: IngressClass
+    - group: "storage.k8s.io"
+      kind: StorageClass
+    - group: "external-secrets.io"
+      kind: ClusterSecretStore
+    - group: "kyverno.io"
+      kind: ClusterPolicy
+
+  # ── Namespace-scoped resource whitelist ──────────────────────────────────────
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # ── Roles ─────────────────────────────────────────────────────────────────────
+  roles:
+    # CI pipeline service account can sync but not delete
+    - name: ci-sync
+      description: "Tekton pipeline — trigger syncs after image tag update"
+      policies:
+        - p, proj:dtb-banking:ci-sync, applications, sync, dtb-banking/*, allow
+        - p, proj:dtb-banking:ci-sync, applications, get,  dtb-banking/*, allow
+      groups:
+        - tekton-pipelines
+
+    # Read-only role for observability and audit
+    - name: read-only
+      description: "Read-only access for auditing"
+      policies:
+        - p, proj:dtb-banking:read-only, applications, get, dtb-banking/*, allow

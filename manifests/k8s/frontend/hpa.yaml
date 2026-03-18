@@ -1,0 +1,44 @@
+---
+# HorizontalPodAutoscaler — scales the frontend (nginx) between 2 and 6 replicas.
+# Frontend is CPU-bound (nginx serving static assets) so we scale on CPU only.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: banking-frontend
+  namespace: banking
+  labels:
+    app.kubernetes.io/name: banking-frontend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: frontend
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: banking-frontend
+
+  minReplicas: 2
+  maxReplicas: 6
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120

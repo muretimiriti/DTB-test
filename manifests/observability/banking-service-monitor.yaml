@@ -1,0 +1,28 @@
+---
+# ServiceMonitor — instructs Prometheus to scrape the banking backend's /metrics endpoint.
+# Requires the backend to expose Prometheus-format metrics (e.g., via prom-client).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: banking-backend
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: banking-backend
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: observability
+    release: prometheus
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  namespaceSelector:
+    matchNames:
+      - banking
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: banking-backend
+      app.kubernetes.io/component: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

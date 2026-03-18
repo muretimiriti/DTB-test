@@ -5,22 +5,27 @@ kind: Kustomization
 namespace: banking
 
 resources:
-  
+
   - namespace.yaml
 
   - mongodb/configmap.yaml
-  - mongodb/secret.yaml
+  - mongodb/external-secret.yaml
   - mongodb/statefulset.yaml
   - mongodb/service.yaml
+  - mongodb/pdb.yaml
 
   - backend/configmap.yaml
-  - backend/secret.yaml
+  - backend/external-secret.yaml
   - backend/deployment.yaml
   - backend/service.yaml
+  - backend/hpa.yaml
+  - backend/pdb.yaml
 
   - frontend/deployment.yaml
   - frontend/service.yaml
   - frontend/ingress.yaml
+  - frontend/hpa.yaml
+  - frontend/pdb.yaml
 
 labels:
   - pairs:
@@ -28,9 +33,11 @@ labels:
       managed-by: kustomize
 
 images:
+  # Tags are pinned by the Tekton update-manifests task on every build.
+  # Do NOT manually set these to "latest" — that breaks GitOps immutability.
   - name: DOCKERHUB_USERNAME/banking-backend
-    newName: DOCKERHUB_USERNAME/banking-backend   
-    newTag: latest
+    newName: DOCKERHUB_USERNAME/banking-backend
+    newTag: replace-me
   - name: DOCKERHUB_USERNAME/banking-frontend
-    newName: DOCKERHUB_USERNAME/banking-frontend  
-    newTag: latest
+    newName: DOCKERHUB_USERNAME/banking-frontend
+    newTag: replace-me

@@ -1,0 +1,26 @@
+---
+# ConfigMap — Grafana datasource for Loki, auto-loaded via the sidecar.
+# The label grafana_datasource=1 triggers the Grafana sidecar to mount this config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-loki-datasource
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: observability
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+data:
+  loki-datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.monitoring.svc.cluster.local:3100
+        version: 1
+        isDefault: false
+        jsonData:
+          maxLines: 1000

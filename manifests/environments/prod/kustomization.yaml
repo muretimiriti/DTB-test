@@ -1,0 +1,82 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ── Production overlay ───────────────────────────────────────────────────────────
+# Full resource allocation; HA replica counts; strict resource limits.
+# Images are only promoted here after staging smoke tests pass (CD pipeline gate).
+# ────────────────────────────────────────────────────────────────────────────────
+
+namespace: banking
+
+resources:
+  - ../../k8s
+
+commonLabels:
+  environment: production
+  app.kubernetes.io/environment: production
+
+# ── Replica counts (HA) ──────────────────────────────────────────────────────────
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: banking-backend
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: banking-frontend
+
+  # ── Resource limits (production) ─────────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+    target:
+      kind: Deployment
+      name: banking-backend
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+    target:
+      kind: Deployment
+      name: banking-frontend
+
+  # ── Ingress host (production) ─────────────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: banking.dtb.local
+    target:
+      kind: Ingress
+      name: banking-ingress
+
+# ── Image tags ─────────────────────────────────────────────────────────────────
+# The CD pipeline promote-to-production task writes the verified staging tag here.
+images:
+  - name: DOCKERHUB_USERNAME/banking-backend
+    newName: DOCKERHUB_USERNAME/banking-backend
+    newTag: replace-me
+  - name: DOCKERHUB_USERNAME/banking-frontend
+    newName: DOCKERHUB_USERNAME/banking-frontend
+    newTag: replace-me

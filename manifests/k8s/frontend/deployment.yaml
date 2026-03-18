@@ -9,6 +9,8 @@ metadata:
     app.kubernetes.io/part-of: dtb-banking-portal
     app.kubernetes.io/component: frontend
     app.kubernetes.io/version: "latest"
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 2
   selector:
