@@ -13,6 +13,7 @@ A production-grade, cloud-native banking web application built on a full Kuberne
 - [Prerequisites](#prerequisites)
 - [Quick Start — Local Development](#quick-start--local-development-docker-compose)
 - [Full Kubernetes Stack](#full-kubernetes-stack--step-by-step)
+- [Teardown](#teardown)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Security Controls](#security-controls)
 - [Observability](#observability)
@@ -91,13 +92,20 @@ All three tiers run in the `banking` namespace on Kubernetes. MongoDB uses a hea
 ├── policies/                 OPA/Rego security policies (k8s-security.rego)
 ├── scripts/
 │   ├── bootstrap.sh          Master bootstrap — runs all 6 stages end-to-end
+│   ├── teardown.sh           Master teardown  — removes all stages in reverse order
 │   ├── prerequisites.sh      Tools, cluster, namespaces, Helm repos
+│   ├── teardown-compose.sh   Tear down Docker Compose stack (containers, volumes, networks)
 │   └── k8s/
-│       ├── vault-credentials.sh   Load all secrets into Vault
-│       ├── security-init.sh       Kyverno, Cosign, ESO, OPA, network policies
-│       ├── tekton-init.sh         Tekton components + pipeline + PipelineRun
-│       ├── argocd-init.sh         ArgoCD install + Application + polling
-│       └── observability-init.sh  Prometheus, Grafana, Loki, OTel + dashboards
+│       ├── vault-credentials.sh        Load all secrets into Vault
+│       ├── security-init.sh            Kyverno, Cosign, ESO, OPA, network policies
+│       ├── tekton-init.sh              Tekton components + pipeline + PipelineRun
+│       ├── argocd-init.sh              ArgoCD install + Application + polling
+│       ├── observability-init.sh       Prometheus, Grafana, Loki, OTel + dashboards
+│       ├── teardown-credentials.sh     Remove Vault KV paths + k8s secrets
+│       ├── teardown-security.sh        Remove Kyverno policies, NetworkPolicies, Cosign, OPA
+│       ├── teardown-tekton.sh          Cancel runs, delete tasks/pipelines/triggers/PVCs
+│       ├── teardown-argocd.sh          Delete Application, disable sync, optionally uninstall
+│       └── teardown-observability.sh   Helm-uninstall Prometheus, Loki, OTel; delete namespaces
 ├── doc/                      Architecture, API reference, pipeline walkthrough
 └── docker-compose.yml        Local development (no Kubernetes required)
 ```
@@ -143,8 +151,11 @@ docker compose up -d
 # Tail logs
 docker compose logs -f
 
-# Tear down
-docker compose down -v
+# Tear down (containers, volumes, networks)
+./scripts/teardown-compose.sh
+
+# Tear down and also remove built images
+./scripts/teardown-compose.sh --remove-images
 ```
 
 ---
@@ -304,6 +315,118 @@ echo "$(minikube ip) banking.local" | sudo tee -a /etc/hosts
 
 ---
 
+## Teardown
+
+Teardown mirrors the bootstrap in reverse order (6 → 1). Each component has its own script so you can remove only what you need.
+
+### Master Teardown
+
+The single command that tears down the entire stack:
+
+```bash
+./scripts/teardown.sh
+```
+
+The script prompts for confirmation, then runs all six teardown stages in reverse order writing per-stage logs to `logs/teardown/`.
+
+**Common flags:**
+
+```bash
+# Preview what would be removed — no changes made
+./scripts/teardown.sh --dry-run
+
+# Full wipe: uninstall all components + delete the minikube cluster
+./scripts/teardown.sh --nuke
+
+# Keep the cluster running but remove everything inside it
+./scripts/teardown.sh --uninstall-tekton --uninstall-argocd --uninstall-kyverno --uninstall-eso
+
+# Only remove observability and ArgoCD, leave everything else
+./scripts/teardown.sh --skip-tekton --skip-security --skip-credentials --skip-compose
+
+# Remove Docker Compose stack and also delete built images
+./scripts/teardown.sh --skip-argocd --skip-tekton --skip-security --skip-credentials --remove-images
+```
+
+**Flag reference:**
+
+| Flag | Effect |
+|------|--------|
+| `--skip-observability` | Skip stage 6 (Prometheus, Grafana, Loki, OTel) |
+| `--skip-argocd` | Skip stage 5 (ArgoCD Application + namespace) |
+| `--skip-tekton` | Skip stage 4 (pipeline runs, tasks, RBAC) |
+| `--skip-security` | Skip stage 3 (Kyverno, NetworkPolicies, Cosign) |
+| `--skip-credentials` | Skip stage 2 (Vault secrets, k8s secrets) |
+| `--skip-compose` | Skip stage 1 (Docker Compose stack) |
+| `--uninstall-tekton` | Also Helm/kubectl-uninstall Tekton controllers + CRDs |
+| `--uninstall-argocd` | Also kubectl-uninstall ArgoCD controllers + CRDs |
+| `--uninstall-kyverno` | Also Helm-uninstall Kyverno |
+| `--uninstall-eso` | Also Helm-uninstall External Secrets Operator |
+| `--remove-images` | Delete locally built Docker images |
+| `--delete-cluster` | Run `minikube delete` after all stages |
+| `--nuke` | All of the above combined |
+| `--dry-run` | Print every action without executing |
+
+---
+
+### Individual Stage Teardown
+
+Run stages independently if you only need to remove one component:
+
+```bash
+# Stage 6 — remove Prometheus, Grafana, Loki, OTel
+./scripts/k8s/teardown-observability.sh
+
+# Stage 5 — delete ArgoCD Application and stop GitOps sync
+./scripts/k8s/teardown-argocd.sh
+
+# Stage 5 — delete Application AND fully uninstall ArgoCD
+./scripts/k8s/teardown-argocd.sh --uninstall-argocd
+
+# Stage 4 — cancel all PipelineRuns, delete tasks/pipelines/triggers/PVCs
+./scripts/k8s/teardown-tekton.sh
+
+# Stage 4 — also uninstall Tekton controllers from the cluster
+./scripts/k8s/teardown-tekton.sh --uninstall-tekton
+
+# Stage 3 — remove Kyverno policies, NetworkPolicies, cosign secrets, OPA ConfigMaps
+./scripts/k8s/teardown-security.sh
+
+# Stage 3 — also Helm-uninstall Kyverno and ESO
+./scripts/k8s/teardown-security.sh --uninstall-kyverno --uninstall-eso
+
+# Stage 2 — wipe Vault KV paths and all k8s secrets
+./scripts/k8s/teardown-credentials.sh
+
+# Stage 2 — only remove k8s secrets, leave Vault data intact
+./scripts/k8s/teardown-credentials.sh --skip-vault
+
+# Stage 1 — stop Docker Compose containers and remove volumes
+./scripts/teardown-compose.sh
+
+# Stage 1 — also delete the built backend and frontend images
+./scripts/teardown-compose.sh --remove-images
+```
+
+Every script accepts `--dry-run` to preview actions without making changes.
+
+---
+
+### Teardown Logs
+
+Each stage writes a log to `logs/teardown/`:
+
+```bash
+cat logs/teardown/observability.log
+cat logs/teardown/argocd.log
+cat logs/teardown/tekton.log
+cat logs/teardown/security.log
+cat logs/teardown/credentials.log
+cat logs/teardown/compose.log
+```
+
+---
+
 ## CI/CD Pipeline
 
 The Tekton CI pipeline runs automatically on every `git push` via a GitHub webhook, and can also be triggered manually.
@@ -453,13 +576,21 @@ argocd app sync dtb-banking-portal --force
 
 ### Stage logs
 
-Each bootstrap stage writes a full log:
+Each bootstrap and teardown stage writes a full log:
 
 ```bash
+# Bootstrap logs
 cat logs/bootstrap/prerequisites.log
+cat logs/bootstrap/credentials.log
+cat logs/bootstrap/security.log
 cat logs/bootstrap/tekton.log
 cat logs/bootstrap/argocd.log
-# etc.
+cat logs/bootstrap/observability.log
+
+# Teardown logs
+cat logs/teardown/observability.log
+cat logs/teardown/tekton.log
+cat logs/teardown/argocd.log
 ```
 
 ---
