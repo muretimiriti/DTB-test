@@ -8,7 +8,7 @@ MANIFESTS="${ROOT_DIR}/manifests"
 NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
 BANKING_NS="${BANKING_NAMESPACE:-banking}"
 ARGOCD_VERSION="${ARGOCD_VERSION:-v2.14.6}"
-ARGOCD_APP_NAME="${ARGOCD_APP_NAME:-dtb-banking-portal}"
+ARGOCD_APP_NAME="${ARGOCD_APP_NAME:-dtb-banking-gitops}"
 DOCKER_REPO="${DOCKER_REPO:-muretimiriti/dtb-project}"
 POLLING_INTERVAL="${POLLING_INTERVAL:-1800}"
 INSTALL_ARGOCD="${INSTALL_ARGOCD:-true}"
@@ -309,26 +309,34 @@ generate_application_yaml() {
   local app_file="${MANIFESTS}/argocd/application.yaml"
   [[ -f "$app_file" ]] || die "Application manifest not found: $app_file"
 
-  log "applying Application: $ARGOCD_APP_NAME"
-  log "  source: $git_url / manifests/k8s"
-  log "  target: $BANKING_NS @ https://kubernetes.default.svc"
-  log "  sync:   automated (prune=true, selfHeal=true)"
+  # This is the bootstrap "app of apps". It points at manifests/gitops/ which
+  # contains the AppProject and ApplicationSet. Once applied, ArgoCD manages
+  # everything else — no further manual kubectl apply is needed.
+  log "applying bootstrap Application: $ARGOCD_APP_NAME"
+  log "  source: $git_url / manifests/gitops"
+  log "  target: argocd @ https://kubernetes.default.svc"
+  log "  owns:   AppProject (dtb-banking) + ApplicationSet (dev/staging/prod)"
 
   $DRY_RUN && { log "DRY RUN: REPO_URL=$git_url envsubst | kubectl apply -f -"; return 0; }
 
   REPO_URL="$git_url" envsubst < "$app_file" \
     | retry_cmd 3 2 kubectl apply -f -
 
-  success "Application '$ARGOCD_APP_NAME' applied"
+  success "Bootstrap Application '$ARGOCD_APP_NAME' applied"
 
-  log "waiting for Application to be created..."
+  log "waiting for ApplicationSet to generate child Applications..."
   local elapsed=0
-  while (( elapsed < 30 )); do
-    kubectl get application "$ARGOCD_APP_NAME" -n "$NAMESPACE" &>/dev/null \
-      && { success "Application '$ARGOCD_APP_NAME': ready"; return 0; }
-    sleep 3; elapsed=$((elapsed + 3))
+  while (( elapsed < 60 )); do
+    local count
+    count=$(kubectl get application -n "$NAMESPACE" \
+      -l "app.kubernetes.io/part-of=dtb-banking-portal" \
+      --no-headers 2>/dev/null | wc -l)
+    (( count >= 3 )) \
+      && { success "ApplicationSet generated $count child Applications (dev, staging, prod)"; return 0; }
+    sleep 5; elapsed=$((elapsed + 5))
+    log "  waiting for child Applications ($count/3 ready, ${elapsed}s)..."
   done
-  warn "Application may still be propagating — check: kubectl get application -n $NAMESPACE"
+  warn "Child Applications may still be propagating — check: kubectl get application -n $NAMESPACE"
 }
 
 configure_image_updater() {
@@ -396,22 +404,28 @@ print_summary() {
   echo  "    Interval: ${POLLING_INTERVAL}s ($(( POLLING_INTERVAL / 60 )) min) — set in argocd-cm"
   echo  "    ArgoCD will detect new image tags committed by the Tekton update-manifests task"
   echo ""
+  echo -e "  ${BOLD}GitOps structure${NC}"
+  echo  "    dtb-banking-gitops (bootstrap)"
+  echo  "      └── AppProject: dtb-banking"
+  echo  "      └── ApplicationSet → dtb-banking-dev / dtb-banking-staging / dtb-banking-prod"
+  echo  ""
   echo -e "  ${BOLD}Quick commands${NC}"
   echo  "    kubectl get application -n $NAMESPACE"
-  echo  "    kubectl get application $ARGOCD_APP_NAME -n $NAMESPACE -o yaml"
+  echo  "    kubectl get applicationset -n $NAMESPACE"
   if [[ "$SKIP_CLI" == "false" ]]; then
     echo  "    argocd app list"
     echo  "    argocd app sync $ARGOCD_APP_NAME"
-    echo  "    argocd app wait $ARGOCD_APP_NAME --health"
+    echo  "    argocd app wait dtb-banking-prod --health"
   fi
   echo ""
 }
 
 echo ""
 echo -e "${BOLD}DTB Banking Portal — ArgoCD Bootstrap${NC}"
-echo -e "  namespace : $NAMESPACE"
-echo -e "  app name  : $ARGOCD_APP_NAME"
-echo -e "  poll:     : ${POLLING_INTERVAL}s ($(( POLLING_INTERVAL / 60 )) min)"
+echo -e "  namespace  : $NAMESPACE"
+echo -e "  bootstrap  : $ARGOCD_APP_NAME  →  manifests/gitops/"
+echo -e "  generates  : dtb-banking-dev / dtb-banking-staging / dtb-banking-prod"
+echo -e "  poll       : ${POLLING_INTERVAL}s ($(( POLLING_INTERVAL / 60 )) min)"
 $DRY_RUN && echo -e "  ${YELLOW}DRY RUN — no cluster changes${NC}"
 echo ""
 

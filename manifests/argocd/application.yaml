@@ -1,57 +1,30 @@
+
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: dtb-banking-portal
+  name: dtb-banking-gitops
   namespace: argocd
   labels:
-    app.kubernetes.io/name: dtb-banking-portal
+    app.kubernetes.io/name: dtb-banking-gitops
     app.kubernetes.io/part-of: dtb-banking-portal
-    app.kubernetes.io/managed-by: argocd-init-script
+    app.kubernetes.io/component: bootstrap
   annotations:
-    app.kubernetes.io/polling-interval: "1800s"
     argocd.argoproj.io/sync-wave: "0"
-
-    # ── ArgoCD Image Updater ──────────────────────────────────────────────────
-    # Track the two application images on Docker Hub.
-    argocd-image-updater.argoproj.io/image-list: >-
-      backend=muretimiriti/dtb-project-backend,
-      frontend=muretimiriti/dtb-project-frontend
-
-    # Update strategy: semver picks the highest matching tag (v*).
-    # Change to "latest" in dev/staging overlays if needed.
-    argocd-image-updater.argoproj.io/backend.update-strategy: semver
-    argocd-image-updater.argoproj.io/frontend.update-strategy: semver
-
-    # Write-back method: Image Updater commits the new tag directly back to git.
-    # This is the GitOps-correct approach — the cluster state is always derivable
-    # from the repo, not from in-cluster annotations.
-    argocd-image-updater.argoproj.io/write-back-method: git
-
-    # The branch Image Updater pushes tag commits to.
-    argocd-image-updater.argoproj.io/git-branch: main
-
-    # The kustomization file Image Updater edits (relative to repo root).
-    argocd-image-updater.argoproj.io/write-back-target: "kustomization:manifests/k8s"
-
-    # Credentials secret for the git write-back push.
-    # Secret must exist in the argocd namespace with keys 'username' and 'password'
-    # (or 'sshPrivateKey' for SSH). Created by vault-credentials.sh.
-    argocd-image-updater.argoproj.io/git-credentials-secret: argocd/git-credentials
+  
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: dtb-banking
+  project: default
 
   source:
     repoURL: "${REPO_URL}"
     targetRevision: HEAD
-    path: manifests/k8s
-    kustomize:
-      images:
-        - muretimiriti/dtb-project-backend
-        - muretimiriti/dtb-project-frontend
+    # Points at the gitops layer, not the app manifests directly.
+    path: manifests/gitops
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: banking
+    namespace: argocd
 
   syncPolicy:
     automated:
@@ -59,7 +32,7 @@ spec:
       selfHeal: true
       allowEmpty: false
     syncOptions:
-      - CreateNamespace=true
+      - CreateNamespace=false      # argocd namespace must already exist
       - ApplyOutOfSyncOnly=true
       - PrunePropagationPolicy=foreground
       - PruneLast=true
@@ -69,9 +42,3 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/template/metadata/annotations/checksum~1config
