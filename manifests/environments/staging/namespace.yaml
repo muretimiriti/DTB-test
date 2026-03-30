@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banking-staging
+  labels:
+    app.kubernetes.io/part-of: dtb-banking-portal
+    environment: staging
+    # Staging mirrors prod pod-security policy — catches policy violations
+    # before they reach production.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

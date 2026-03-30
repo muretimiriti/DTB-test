@@ -10,6 +10,7 @@ namespace: banking-staging
 
 resources:
   - ../../k8s
+  - namespace.yaml
 
 namePrefix: staging-
 
