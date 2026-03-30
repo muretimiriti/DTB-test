@@ -1,0 +1,56 @@
+---
+# Platform Application — deploys cluster-wide infrastructure resources.
+#
+# Managed by the bootstrap Application (dtb-banking-gitops) via manifests/gitops/.
+# ArgoCD syncs this automatically whenever manifests/platform/ changes in git.
+#
+# Owns:
+#   - IngressClass (nginx)
+#   - StorageClass (banking-retain)
+#   - ResourceQuota (banking namespace)
+#   - LimitRange   (banking namespace)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dtb-banking-platform
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: dtb-banking-platform
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: platform
+  annotations:
+    # Apply before app-layer resources so quotas and storage classes exist first.
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: dtb-banking
+
+  source:
+    repoURL: "https://github.com/muretimiriti/DTB-test.git"
+    targetRevision: HEAD
+    path: manifests/platform
+
+  destination:
+    server: https://kubernetes.default.svc
+    # Platform resources are either cluster-scoped or target the banking namespace.
+    # Each manifest declares its own namespace where required.
+    namespace: banking
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true   # required for cluster-scoped resources
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m

@@ -2,5 +2,15 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+  # AppProject must exist before any Application references it (sync-wave: -1).
   - app-project.yaml
-  - applicationset.yaml
+
+  # Infrastructure layer — synced before the app layer.
+  - platform-application.yaml      # wave -2: IngressClass, StorageClass, ResourceQuota
+  - security-application.yaml      # wave -1: ClusterSecretStore, regcred ExternalSecret
+
+  # App layer — ApplicationSet drives dev/staging/prod environments.
+  - applicationset.yaml            # wave  0: generates dtb-banking-{dev,staging,prod}
+
+  # Observability layer — synced after app pods are live.
+  - observability-application.yaml # wave  3: ServiceMonitor, OTel Collector, Grafana DS

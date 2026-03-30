@@ -1,0 +1,55 @@
+---
+# Security Application — deploys the External Secrets Operator bridge to Vault.
+#
+# Managed by the bootstrap Application (dtb-banking-gitops) via manifests/gitops/.
+# Must sync BEFORE the app-layer ExternalSecrets (wave 0) so the ClusterSecretStore
+# is ready when the banking namespace ExternalSecrets are reconciled.
+#
+# Owns:
+#   - ClusterSecretStore  (vault-cluster-secret-store)
+#   - ExternalSecret      (regcred — Docker Hub pull secret synced from Vault)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dtb-banking-security
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: dtb-banking-security
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: secrets-management
+  annotations:
+    # Wave -1: after platform (-2) but before app ExternalSecrets (wave 0).
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: dtb-banking
+
+  source:
+    repoURL: "https://github.com/muretimiriti/DTB-test.git"
+    targetRevision: HEAD
+    path: manifests/security/external-secrets
+
+  destination:
+    server: https://kubernetes.default.svc
+    # ClusterSecretStore is cluster-scoped; regcred ExternalSecret targets banking.
+    # ServerSideApply handles the namespace mismatch for cluster-scoped resources.
+    namespace: banking
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - ServerSideApply=true   # required for ClusterSecretStore (cluster-scoped)
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

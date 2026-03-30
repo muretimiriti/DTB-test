@@ -1,0 +1,63 @@
+---
+# Observability Application — deploys monitoring and tracing resources.
+#
+# Managed by the bootstrap Application (dtb-banking-gitops) via manifests/gitops/.
+# Syncs after the app layer (wave 3+) so ServiceMonitors can discover running pods.
+#
+# Owns:
+#   - ServiceMonitor      (scrapes backend /metrics endpoint)
+#   - OTel Collector      (receives traces, exports to Jaeger/stdout)
+#   - Grafana datasource  (ConfigMap consumed by Grafana sidecar)
+#   - Helm values files   (prometheus-values.yaml, loki-values.yaml — reference only,
+#                          rendered by observability-init.sh, not applied by ArgoCD)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dtb-banking-observability
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: dtb-banking-observability
+    app.kubernetes.io/part-of: dtb-banking-portal
+    app.kubernetes.io/component: observability
+  annotations:
+    # Wave 3: after all app deployments are live (waves 0-2).
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: dtb-banking
+
+  source:
+    repoURL: "https://github.com/muretimiriti/DTB-test.git"
+    targetRevision: HEAD
+    path: manifests/observability
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true   # creates monitoring namespace if absent
+      - ApplyOutOfSyncOnly=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m
+
+  # Helm values files are plain YAML (not Helm releases) — ArgoCD applies them
+  # as ConfigMaps. Ignore drift on Grafana dashboards that users may pin in-cluster.
+  ignoreDifferences:
+    - group: ""
+      kind: ConfigMap
+      name: grafana-loki-datasource
+      jsonPointers:
+        - /data
