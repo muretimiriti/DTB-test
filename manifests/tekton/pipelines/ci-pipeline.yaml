@@ -165,8 +165,12 @@ spec:
         - name: source
           workspace: pipeline-workspace
       params:
-        - name: image-repo
-          value: $(params.image-repo)
+        - name: environment
+          value: "dev"
+        - name: backend-image
+          value: "$(params.image-repo)-backend"
+        - name: frontend-image
+          value: "$(params.image-repo)-frontend"
         - name: image-tag
           value: $(params.image-tag)
 

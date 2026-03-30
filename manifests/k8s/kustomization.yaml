@@ -34,10 +34,12 @@ labels:
 
 images:
   # Tags are pinned by the Tekton update-manifests task on every build.
+  # The 'name:' key must match exactly what kustomize edit set image uses
+  # (and what Kaniko pushes to Docker Hub).
   # Do NOT manually set these to "latest" — that breaks GitOps immutability.
-  - name: DOCKERHUB_USERNAME/banking-backend
-    newName: DOCKERHUB_USERNAME/banking-backend
+  - name: muretimiriti/dtb-project-backend
+    newName: muretimiriti/dtb-project-backend
     newTag: replace-me
-  - name: DOCKERHUB_USERNAME/banking-frontend
-    newName: DOCKERHUB_USERNAME/banking-frontend
+  - name: muretimiriti/dtb-project-frontend
+    newName: muretimiriti/dtb-project-frontend
     newTag: replace-me

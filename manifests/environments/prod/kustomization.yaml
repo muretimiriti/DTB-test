@@ -74,9 +74,10 @@ patches:
 # ── Image tags ─────────────────────────────────────────────────────────────────
 # The CD pipeline promote-to-production task writes the verified staging tag here.
 images:
-  - name: DOCKERHUB_USERNAME/banking-backend
-    newName: DOCKERHUB_USERNAME/banking-backend
+  # Only promoted after staging smoke tests pass — never written by the CI pipeline.
+  - name: muretimiriti/dtb-project-backend
+    newName: muretimiriti/dtb-project-backend
     newTag: replace-me
-  - name: DOCKERHUB_USERNAME/banking-frontend
-    newName: DOCKERHUB_USERNAME/banking-frontend
+  - name: muretimiriti/dtb-project-frontend
+    newName: muretimiriti/dtb-project-frontend
     newTag: replace-me

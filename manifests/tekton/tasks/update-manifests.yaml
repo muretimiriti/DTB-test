@@ -1,4 +1,3 @@
-
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -9,24 +8,48 @@ metadata:
     app.kubernetes.io/component: tekton-task
 spec:
   description: >
-    Updates the Kustomize image tags in the manifests repository and commits
-    the change. ArgoCD picks up the commit and syncs the cluster.
+    Pins the new image tags in the correct Kustomize environment overlay and
+    pushes the commit to git. ArgoCD detects the change and syncs the target
+    environment automatically.
+
+    CI builds write to manifests/environments/dev/.
+    CD promotions write to manifests/environments/prod/ (after staging gate).
 
   workspaces:
     - name: source
-      description: Checked-out source (contains manifests/k8s/)
+      description: Checked-out source (contains manifests/environments/)
 
   params:
-    - name: image-repo
+    - name: environment
       type: string
-      default: "muretimiriti/dtb-project"
-      description: Docker Hub repo (e.g. muretimiriti/dtb-project)
+      default: "dev"
+      description: |
+        Target environment overlay to update.
+        Must match a directory under manifests/environments/:
+          dev     — updated on every CI build from main
+          staging — updated after dev smoke tests pass
+          prod    — updated by the CD pipeline after staging gate
+
+    - name: backend-image
+      type: string
+      default: "muretimiriti/dtb-project-backend"
+      description: Full backend image name (without tag) — must match the
+        'name:' key in the target kustomization.yaml
+
+    - name: frontend-image
+      type: string
+      default: "muretimiriti/dtb-project-frontend"
+      description: Full frontend image name (without tag) — must match the
+        'name:' key in the target kustomization.yaml
+
     - name: image-tag
       type: string
-      description: New image tag (git commit SHA or timestamp)
+      description: New image tag (git commit SHA from build-push task)
+
     - name: git-user-name
       type: string
       default: "Tekton Pipeline"
+
     - name: git-user-email
       type: string
       default: "tekton@dtb.local"
@@ -49,9 +72,19 @@ spec:
               key: repo-url
               optional: true
       script: |
-        set -e
+        #!/usr/bin/env sh
+        set -eu
 
-        git config user.name "$(params.git-user-name)"
+        ENV="$(params.environment)"
+        OVERLAY="manifests/environments/${ENV}"
+
+        if [ ! -d "$OVERLAY" ]; then
+          echo "ERROR: overlay directory '$OVERLAY' does not exist."
+          echo "Valid values for 'environment' param: dev, staging, prod"
+          exit 1
+        fi
+
+        git config user.name  "$(params.git-user-name)"
         git config user.email "$(params.git-user-email)"
 
         echo "=== Installing kustomize ==="
@@ -60,29 +93,39 @@ spec:
         tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
         chmod +x /usr/local/bin/kustomize
 
-        echo "=== Updating image tags to $(params.image-tag) ==="
-        cd manifests/k8s
+        echo "=== Pinning image tags in ${OVERLAY} ==="
+        echo "    backend:  $(params.backend-image):$(params.image-tag)"
+        echo "    frontend: $(params.frontend-image):$(params.image-tag)"
+
+        cd "$OVERLAY"
+
+        # kustomize edit set image requires the name to exactly match the
+        # 'name:' key already present in kustomization.yaml — both are
+        # muretimiriti/dtb-project-{backend,frontend}.
+        kustomize edit set image \
+          "$(params.backend-image)=$(params.backend-image):$(params.image-tag)"
 
         kustomize edit set image \
-          "$(params.image-repo)-backend=$(params.image-repo)-backend:$(params.image-tag)"
+          "$(params.frontend-image)=$(params.frontend-image):$(params.image-tag)"
 
-        kustomize edit set image \
-          "$(params.image-repo)-frontend=$(params.image-repo)-frontend:$(params.image-tag)"
-
+        # Validate the overlay builds cleanly before committing.
         kustomize build . > /dev/null
         echo "Kustomize build: OK"
 
-        git add kustomization.yaml
+        cd "$(workspaces.source.path)"
+        git add "${OVERLAY}/kustomization.yaml"
+
         if git diff --staged --quiet; then
-          echo "No changes to commit — image tag already up to date"
+          echo "No changes — image tag $(params.image-tag) already set in ${ENV}"
           exit 0
         fi
 
-        COMMIT_MSG=$(printf 'ci: update image tags to %s\n\nBackend:  %s-backend:%s\nFrontend: %s-frontend:%s\n\nskip ci' \
+        git commit -m "$(printf \
+          'ci(%s): pin images to %s\n\nbackend:  %s:%s\nfrontend: %s:%s\n\n[skip ci]' \
+          "$ENV" \
           "$(params.image-tag)" \
-          "$(params.image-repo)" "$(params.image-tag)" \
-          "$(params.image-repo)" "$(params.image-tag)")
-        git commit -m "$COMMIT_MSG"
+          "$(params.backend-image)" "$(params.image-tag)" \
+          "$(params.frontend-image)" "$(params.image-tag)")"
 
         REMOTE="${REPO_URL:-$(git remote get-url origin 2>/dev/null || echo '')}"
 
@@ -94,10 +137,9 @@ spec:
           echo "=== Pushing with SSH ==="
           git push origin HEAD
         else
-          echo "=== No GIT_TOKEN in git-credentials secret — skipping git push ==="
-          echo "    GitOps image tag update will not be committed."
-          echo "    To enable: add GIT_TOKEN key to the git-credentials secret."
+          echo "WARNING: no GIT_TOKEN found — skipping git push."
+          echo "  Add GIT_TOKEN to the git-credentials secret to enable write-back."
           exit 0
         fi
 
-        echo "=== Manifest update pushed — ArgoCD will sync automatically ==="
+        echo "=== ${ENV} overlay updated — ArgoCD will sync dtb-banking-${ENV} ==="

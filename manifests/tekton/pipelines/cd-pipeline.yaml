@@ -25,10 +25,15 @@ spec:
       description: Docker Hub username
     - name: staging-backend-url
       type: string
-      default: "http://banking-backend.banking.svc.cluster.local:5000"
+      # staging namespace is banking-staging; namePrefix=staging- is applied by overlay
+      default: "http://staging-banking-backend.banking-staging.svc.cluster.local:5000"
     - name: staging-frontend-url
       type: string
-      default: "http://banking-frontend.banking.svc.cluster.local:80"
+      default: "http://staging-banking-frontend.banking-staging.svc.cluster.local:80"
+    - name: image-repo
+      type: string
+      default: "muretimiriti/dtb-project"
+      description: Docker Hub repo prefix (without -backend / -frontend suffix)
     - name: git-url
       type: string
       description: GitOps repository URL for manifest updates
@@ -70,8 +75,12 @@ spec:
         - name: source
           workspace: pipeline-workspace
       params:
-        - name: docker-username
-          value: $(params.docker-username)
+        - name: environment
+          value: "prod"
+        - name: backend-image
+          value: "$(params.image-repo)-backend"
+        - name: frontend-image
+          value: "$(params.image-repo)-frontend"
         - name: image-tag
           value: $(params.image-tag)
         - name: git-user-name
