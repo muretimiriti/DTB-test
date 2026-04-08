@@ -1,4 +1,3 @@
-
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -10,22 +9,33 @@ metadata:
     app.kubernetes.io/component: frontend
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-    
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
-   
+    # Force HTTPS — redirect all plain HTTP requests to HTTPS.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/configuration-snippet: |
-      add_header X-Frame-Options SAMEORIGIN;
-      add_header X-Content-Type-Options nosniff;
-      add_header Referrer-Policy strict-origin-when-cross-origin;
+      add_header X-Frame-Options SAMEORIGIN always;
+      add_header X-Content-Type-Options nosniff always;
+      add_header Referrer-Policy strict-origin-when-cross-origin always;
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 spec:
   ingressClassName: nginx
+  # TLS — cert-manager issues the certificate for APP_DOMAIN.
+  # The Secret name must match the Certificate/ClusterIssuer configuration.
+  # Override APP_DOMAIN via kustomize overlay patch per environment:
+  #   dev      →  banking-dev.yourdomain.com
+  #   staging  →  banking-staging.yourdomain.com
+  #   prod     →  banking.yourdomain.com
+  tls:
+    - hosts:
+        - banking.yourdomain.com     # patched per overlay
+      secretName: banking-tls        # created by cert-manager
   rules:
-    - host: banking.local
+    - host: banking.yourdomain.com   # patched per overlay
       http:
         paths:
-          
           - path: /
             pathType: Prefix
             backend:

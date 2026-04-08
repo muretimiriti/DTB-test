@@ -62,11 +62,27 @@ patches:
       kind: Deployment
       name: banking-frontend
 
-  # ── Ingress host (production) ─────────────────────────────────────────────────
+  # ── CORS origins (production) ────────────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /data/ALLOWED_ORIGINS
+        value: "https://banking.yourdomain.com"
+    target:
+      kind: ConfigMap
+      name: backend-config
+
+  # ── Ingress host + TLS (production) ──────────────────────────────────────────
+  # Replace banking.yourdomain.com with your actual production domain.
   - patch: |-
       - op: replace
         path: /spec/rules/0/host
-        value: banking.dtb.local
+        value: banking.yourdomain.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: banking.yourdomain.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: banking-prod-tls
     target:
       kind: Ingress
       name: banking-ingress

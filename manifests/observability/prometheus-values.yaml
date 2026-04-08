@@ -13,7 +13,7 @@ grafana:
   adminPassword: ""   # Set via Vault / ESO — do NOT hardcode here
   persistence:
     enabled: true
-    storageClassName: standard-rwo
+    storageClassName: ""   # use cluster default StorageClass
     size: 2Gi
   sidecar:
     dashboards:
@@ -50,7 +50,7 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: standard-rwo
+          storageClassName: ""   # use cluster default StorageClass
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
@@ -65,7 +65,7 @@ alertmanager:
     storage:
       volumeClaimTemplate:
         spec:
-          storageClassName: standard-rwo
+          storageClassName: ""   # use cluster default StorageClass
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:

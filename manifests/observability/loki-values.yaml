@@ -6,7 +6,7 @@ loki:
   enabled: true
   persistence:
     enabled: true
-    storageClassName: standard-rwo
+    storageClassName: ""   # use cluster default StorageClass
     size: 10Gi
   config:
     table_manager:

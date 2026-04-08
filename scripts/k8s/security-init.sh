@@ -122,7 +122,7 @@ preflight() {
   section "Preflight Checks"
 
   $DRY_RUN || kubectl cluster-info --request-timeout=10s &>/dev/null \
-    || die "Cannot reach cluster. Start minikube: minikube start"
+    || die "Cannot reach cluster. Check your KUBECONFIG and cluster status."
   success "Cluster: reachable"
 
   local namespaces=(banking kyverno vault external-secrets monitoring)
@@ -366,7 +366,11 @@ setup_vault() {
   fi
   success "Vault pod: Running"
 
-  prompt_value VAULT_ROOT_TOKEN "Vault root token" "root"
+  # VAULT_ROOT_TOKEN must be supplied — no default to prevent accidental
+  # use of the dev root token against a production Vault instance.
+  [[ -n "${VAULT_ROOT_TOKEN:-}" ]] || \
+    die "VAULT_ROOT_TOKEN is not set. Export it before running:\n  export VAULT_ROOT_TOKEN=<your-token>"
+  local VAULT_ROOT_TOKEN="${VAULT_ROOT_TOKEN}"
 
   local VAULT_POD="vault-0"
   local VAULT_NS="vault"
@@ -389,27 +393,27 @@ setup_vault() {
 
   info "Writing banking app secrets to Vault..."
 
-  local jwt_secret="${JWT_SECRET:-$(openssl rand -hex 64 2>/dev/null || echo "CHANGE_ME_64_CHAR_RANDOM_STRING")}"
-  local mongo_app_pass="${MONGO_APP_PASSWORD:-CHANGE_ME_APP_PASSWORD}"
+  # Hard-fail on missing secrets — placeholder values must never reach production Vault.
+  [[ -n "${JWT_SECRET:-}"          ]] || die "JWT_SECRET is not set. Generate one: openssl rand -hex 64"
+  [[ -n "${MONGO_APP_PASSWORD:-}"  ]] || die "MONGO_APP_PASSWORD is not set."
+  [[ -n "${MONGO_ROOT_PASSWORD:-}" ]] || die "MONGO_ROOT_PASSWORD is not set."
+  [[ ${#JWT_SECRET}         -ge 32 ]] || die "JWT_SECRET must be at least 32 characters."
+  [[ ${#MONGO_APP_PASSWORD} -ge 16 ]] || die "MONGO_APP_PASSWORD must be at least 16 characters."
+  [[ ${#MONGO_ROOT_PASSWORD} -ge 16 ]] || die "MONGO_ROOT_PASSWORD must be at least 16 characters."
 
+  # Only true secrets belong in Vault. Rate-limit tuning goes in overlay ConfigMaps.
   $DRY_RUN || kubectl exec -n "$VAULT_NS" "$VAULT_POD" -- \
     sh -c "VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault kv put secret/banking/backend \
-      JWT_SECRET='${jwt_secret}' \
-      MONGO_APP_PASSWORD='${mongo_app_pass}' \
-      NODE_ENV='production' \
-      JWT_EXPIRES_IN='1h' \
-      BCRYPT_ROUNDS='12' \
-      RATE_LIMIT_WINDOW_MS='60000' \
-      RATE_LIMIT_MAX='100' \
-      AUTH_RATE_LIMIT_MAX='5'"
+      JWT_SECRET='${JWT_SECRET}' \
+      MONGO_APP_PASSWORD='${MONGO_APP_PASSWORD}'"
   success "Banking backend secrets written to secret/banking/backend"
 
   $DRY_RUN || kubectl exec -n "$VAULT_NS" "$VAULT_POD" -- \
     sh -c "VAULT_TOKEN=${VAULT_ROOT_TOKEN} vault kv put secret/banking/mongodb \
-      MONGO_ROOT_USER='root' \
-      MONGO_ROOT_PASSWORD='${MONGO_ROOT_PASSWORD:-CHANGE_ME_ROOT_PASSWORD}' \
-      MONGO_APP_USER='app_user' \
-      MONGO_APP_PASSWORD='${mongo_app_pass}'"
+      MONGO_ROOT_USER='${MONGO_ROOT_USER:-root}' \
+      MONGO_ROOT_PASSWORD='${MONGO_ROOT_PASSWORD}' \
+      MONGO_APP_USER='${MONGO_APP_USER:-app_user}' \
+      MONGO_APP_PASSWORD='${MONGO_APP_PASSWORD}'"
   success "MongoDB secrets written to secret/banking/mongodb"
 
   info "Creating Vault policy for External Secrets Operator..."

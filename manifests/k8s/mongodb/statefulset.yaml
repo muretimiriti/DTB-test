@@ -7,12 +7,15 @@ metadata:
     app.kubernetes.io/name: mongodb
     app.kubernetes.io/part-of: dtb-banking-portal
     app.kubernetes.io/component: database
-    app.kubernetes.io/version: "7.0"
+    app.kubernetes.io/version: "7.0.15"
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
   serviceName: mongodb-headless
-  replicas: 1
+  # 3-node replica set — provides automatic failover and read scaling.
+  # The pod index (0,1,2) maps to rs0 member priority (primary is mongo-0).
+  # Dev overlay patches this back to 1 to save resources.
+  replicas: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: mongodb
@@ -23,8 +26,17 @@ spec:
         app.kubernetes.io/name: mongodb
         app.kubernetes.io/part-of: dtb-banking-portal
         app.kubernetes.io/component: database
-        app.kubernetes.io/version: "7.0"
+        app.kubernetes.io/version: "7.0.15"
     spec:
+      # Spread replicas across availability zones for HA.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: mongodb
+
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -42,15 +54,30 @@ spec:
               mountPath: /data/configdb
           securityContext:
             runAsUser: 0
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "32Mi"
 
       containers:
         - name: mongodb
-          image: mongo:7.0
+          # Pinned to full patch version — update intentionally, never floating.
+          image: mongo:7.0.15
           imagePullPolicy: IfNotPresent
           ports:
             - name: mongodb
               containerPort: 27017
               protocol: TCP
+
+          command:
+            - mongod
+            - "--replSet"
+            - "rs0"
+            - "--bind_ip_all"
+            - "--auth"
 
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
@@ -104,7 +131,8 @@ spec:
                 - mongosh
                 - "--quiet"
                 - "--eval"
-                - "db.adminCommand('ping').ok"
+                # Ready only when this node is primary or a healthy secondary.
+                - "rs.status().myState === 1 || rs.status().myState === 2"
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5
@@ -141,6 +169,7 @@ spec:
           app.kubernetes.io/name: mongodb
           app.kubernetes.io/component: database
       spec:
+        storageClassName: banking-retain
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
@@ -151,6 +180,7 @@ spec:
           app.kubernetes.io/name: mongodb
           app.kubernetes.io/component: database
       spec:
+        storageClassName: banking-retain
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:

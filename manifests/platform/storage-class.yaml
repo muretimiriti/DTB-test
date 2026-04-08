@@ -1,18 +1,38 @@
 ---
-# StorageClass — standard-rwo is the default for single-node PVCs (minikube / k3s).
-# On cloud providers replace provisioner with the cloud-native driver
-# (e.g., ebs.csi.aws.com, disk.csi.azure.com, pd.csi.storage.gke.io).
+# StorageClass — "banking-retain" is the application storage class used by
+# MongoDB PVCs and any other stateful workloads.
+#
+# PROVISIONER must be set to match your cluster's CSI driver:
+#   Local / minikube  →  k8s.io/minikube-hostpath
+#   AWS EKS           →  ebs.csi.aws.com
+#   GCP GKE           →  pd.csi.storage.gke.io
+#   Azure AKS         →  disk.csi.azure.com
+#   vSphere           →  csi.vsphere.volume
+#   Bare-metal (LVM)  →  local.csi.k8s.io
+#
+# Override at install time:
+#   STORAGE_PROVISIONER=ebs.csi.aws.com ./scripts/bootstrap.sh
+#
+# The observability stack (Prometheus, Loki) uses the cluster default class
+# (storageClassName: "" in their values files) so they pick up whatever
+# default class is set on the cluster — no change needed there.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: standard-rwo
+  name: banking-retain
   annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
+    # Do NOT set this as the cluster default — it is purpose-built for
+    # the banking namespace stateful workloads with Retain policy.
+    storageclass.kubernetes.io/is-default-class: "false"
     argocd.argoproj.io/sync-wave: "-2"
   labels:
     app.kubernetes.io/part-of: dtb-banking-portal
     app.kubernetes.io/component: platform
-provisioner: k8s.io/minikube-hostpath
-reclaimPolicy: Retain          # Keep PVs on PVC deletion — protects database data
+# Injected by scripts/bootstrap.sh from STORAGE_PROVISIONER env var.
+# Default is the minikube provisioner for local development only.
+provisioner: "${STORAGE_PROVISIONER:-k8s.io/minikube-hostpath}"
+# Retain keeps the PV after PVC deletion — protects database data from
+# accidental loss during rolling updates or namespace recreation.
+reclaimPolicy: Retain
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true

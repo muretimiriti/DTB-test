@@ -29,9 +29,16 @@ spec:
         environment: "{{env}}"
       annotations:
         # Image Updater — one entry per environment image
-        argocd-image-updater.argoproj.io/image-list: >-
-          backend=muretimiriti/dtb-project-backend,
-          frontend=muretimiriti/dtb-project-frontend
+                # REGISTRY — update to your private registry before production.
+          # Format: <registry-host>/<namespace>  (no trailing slash, no tag)
+          # Examples:
+          #   Docker Hub:  muretimiriti
+          #   ECR:         123456789.dkr.ecr.eu-west-1.amazonaws.com/dtb
+          #   GCR:         gcr.io/my-project
+          #   Harbor:      harbor.internal/banking
+          argocd-image-updater.argoproj.io/image-list: >-
+            backend=muretimiriti/dtb-project-backend,
+            frontend=muretimiriti/dtb-project-frontend
         argocd-image-updater.argoproj.io/backend.update-strategy: "{{imageStrategy}}"
         argocd-image-updater.argoproj.io/frontend.update-strategy: "{{imageStrategy}}"
         argocd-image-updater.argoproj.io/write-back-method: git

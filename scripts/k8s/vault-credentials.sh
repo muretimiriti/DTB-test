@@ -21,7 +21,10 @@ die()     { error "$*"; exit 1; }
 cleanup() { local rc=$?; (( rc != 0 )) && error "vault-credentials.sh failed (exit $rc)"; exit "$rc"; }
 trap cleanup ERR EXIT
 
-VAULT_TOKEN="${VAULT_TOKEN:-root}"
+# VAULT_TOKEN must be supplied via env — no default to prevent accidental
+# use of the dev root token in production environments.
+[[ -n "${VAULT_TOKEN:-}" ]] || die "VAULT_TOKEN is not set. Export a Vault token before running this script.\n  export VAULT_TOKEN=\$(vault login -method=... -format=json | jq -r .auth.client_token)"
+VAULT_TOKEN="${VAULT_TOKEN}"
 SKIP_DOCKER=false
 SKIP_GITHUB=false
 SKIP_APP_SECRETS=false
@@ -126,7 +129,7 @@ preflight() {
   section "Preflight"
 
   kubectl cluster-info --request-timeout=10s &>/dev/null \
-    || die "Cannot reach cluster. Is minikube running?"
+    || die "Cannot reach cluster. Check your KUBECONFIG and cluster status."
   success "Cluster: reachable"
 
   vault_running \
@@ -241,19 +244,19 @@ setup_app_secrets() {
   local MONGO_ROOT_PASSWORD="${MONGO_ROOT_PASSWORD:-}"
   local MONGO_APP_PASSWORD="${MONGO_APP_PASSWORD:-}"
 
-  if [[ -z "$MONGO_ROOT_PASSWORD" || -z "$MONGO_APP_PASSWORD" ]]; then
-    die "MONGO_ROOT_PASSWORD and MONGO_APP_PASSWORD not found. Ensure .env is present and sourced."
-  fi
+  # Hard-fail on missing secrets — no placeholder fallbacks in production.
+  [[ -n "$MONGO_ROOT_PASSWORD" ]] || die "MONGO_ROOT_PASSWORD is not set. Set it in .env or export it before running."
+  [[ -n "$MONGO_APP_PASSWORD"  ]] || die "MONGO_APP_PASSWORD is not set. Set it in .env or export it before running."
+  [[ ${#MONGO_ROOT_PASSWORD} -ge 16 ]] || die "MONGO_ROOT_PASSWORD must be at least 16 characters."
+  [[ ${#MONGO_APP_PASSWORD}  -ge 16 ]] || die "MONGO_APP_PASSWORD must be at least 16 characters."
+  [[ ${#JWT_SECRET}          -ge 32 ]] || die "JWT_SECRET must be at least 32 characters (use: openssl rand -hex 64)."
 
+  # Rate-limit tuning values are application config, not secrets.
+  # They live in environment-overlay ConfigMaps (manifests/environments/<env>/).
+  # Only true secrets belong in Vault.
   vault_write "secret/banking/backend" \
     "JWT_SECRET=${JWT_SECRET}" \
-    "MONGO_APP_PASSWORD=${MONGO_APP_PASSWORD}" \
-    "NODE_ENV=production" \
-    "JWT_EXPIRES_IN=1h" \
-    "BCRYPT_ROUNDS=12" \
-    "RATE_LIMIT_WINDOW_MS=60000" \
-    "RATE_LIMIT_MAX=100" \
-    "AUTH_RATE_LIMIT_MAX=5"
+    "MONGO_APP_PASSWORD=${MONGO_APP_PASSWORD}"
   success "Backend secrets written to secret/banking/backend"
 
   vault_write "secret/banking/mongodb" \
@@ -304,7 +307,7 @@ print_summary() {
 
   echo ""
   echo -e "  ${BOLD}Verify:${NC}"
-  echo  "    kubectl exec -n vault vault-0 -- sh -c 'VAULT_TOKEN=root vault kv list secret/banking/'"
+  echo  "    kubectl exec -n vault vault-0 -- sh -c 'VAULT_TOKEN=\$VAULT_TOKEN vault kv list secret/banking/'"
   echo  "    kubectl get secrets -n tekton-pipelines"
   echo  "    kubectl get secrets -n banking"
 

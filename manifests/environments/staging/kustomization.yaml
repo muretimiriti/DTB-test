@@ -65,11 +65,26 @@ patches:
       kind: Deployment
       name: banking-frontend
 
-  # ── Ingress host (staging) ────────────────────────────────────────────────────
+  # ── CORS origins (staging) ───────────────────────────────────────────────────
+  - patch: |-
+      - op: replace
+        path: /data/ALLOWED_ORIGINS
+        value: "https://banking-staging.yourdomain.com"
+    target:
+      kind: ConfigMap
+      name: backend-config
+
+  # ── Ingress host + TLS (staging) ─────────────────────────────────────────────
   - patch: |-
       - op: replace
         path: /spec/rules/0/host
-        value: banking-staging.local
+        value: banking-staging.yourdomain.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: banking-staging.yourdomain.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: banking-staging-tls
     target:
       kind: Ingress
       name: banking-ingress
